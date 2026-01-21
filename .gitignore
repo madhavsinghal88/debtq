@@ -1,0 +1,43 @@
+# Binaries
+debtq
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Build output
+/build/
+/dist/
+
+# Go specific
+go.work
+go.work.sum
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Test files
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# Debug files
+*.log
+debug/
+
+# Local config (keep template, ignore actual config)
+.env
+.env.local
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
