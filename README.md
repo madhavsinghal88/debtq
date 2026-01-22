@@ -9,6 +9,7 @@ A terminal-based personal finance tracker built with Go and [Bubble Tea](https:/
 - Categories: food, transport, shopping, utilities, health, entertainment, education, other
 - View monthly expense summaries
 - Track spending patterns over time
+- Math expressions supported in amount fields (e.g., "100+50")
 
 ### Borrowing & Lending
 - Track money borrowed from others
@@ -52,18 +53,19 @@ A terminal-based personal finance tracker built with Go and [Bubble Tea](https:/
 ### Stats Dashboard
 - Overview of all financial data
 - Net worth summary
-- Debt position
+- Debt position (borrowed vs lent)
 - Monthly and total expenses
-- Savings progress
+- Savings progress tracking
 
 ## Installation
 
 ### Prerequisites
-- [Go](https://go.dev/dl/) 1.21 or later
+- [Go](https://go.dev/dl/) 1.25 or later
+- Alternatively, download the pre-built binary from [Releases](https://github.com/debtq/debtq/releases)
 
 ### Using Make
 ```bash
-git clone https://github.com/yourusername/debtq.git
+git clone https://github.com/madhavsinghal88/debtq.git
 cd debtq
 
 # Build and install to ~/.local/bin
@@ -72,7 +74,7 @@ make install
 
 ### Using Install Script
 ```bash
-git clone https://github.com/yourusername/debtq.git
+git clone https://github.com/madhavsinghal88/debtq.git
 cd debtq
 
 # Run install script
@@ -81,7 +83,7 @@ cd debtq
 
 ### Manual Build
 ```bash
-git clone https://github.com/yourusername/debtq.git
+git clone https://github.com/madhavsinghal88/debtq.git
 cd debtq
 
 # Build
