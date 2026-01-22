@@ -3,7 +3,9 @@ package tui
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -25,6 +27,8 @@ const (
 	ViewSettleDebt
 	ViewNetWorth
 	ViewAddInvestment
+	ViewUpdateInvestment
+	ViewConfirmDelete
 	ViewSavings
 	ViewAddSavingsTarget
 	ViewAddContribution
@@ -119,6 +123,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateNetWorthView(msg)
 		case ViewAddInvestment:
 			return m.updateAddInvestmentView(msg)
+		case ViewUpdateInvestment:
+			return m.updateUpdateInvestmentView(msg)
+		case ViewConfirmDelete:
+			return m.updateConfirmDeleteView(msg)
 		case ViewSavings:
 			return m.updateSavingsView(msg)
 		case ViewAddSavingsTarget:
@@ -163,6 +171,10 @@ func (m Model) View() string {
 		content = m.viewNetWorth()
 	case ViewAddInvestment:
 		content = m.viewAddInvestment()
+	case ViewUpdateInvestment:
+		content = m.viewUpdateInvestment()
+	case ViewConfirmDelete:
+		content = m.viewConfirmDelete()
 	case ViewSavings:
 		content = m.viewSavings()
 	case ViewAddSavingsTarget:
@@ -419,7 +431,6 @@ func (m *Model) updateAddExpenseView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.inputs[m.focusIndex].Focus()
 	case "enter":
-		// Save expense
 		amount, err := strconv.ParseFloat(m.inputs[0].Value(), 64)
 		if err != nil {
 			m.message = "Invalid amount"
@@ -462,6 +473,16 @@ func (m *Model) updateAddExpenseView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.inputs = nil
 		m.cursor = 0
 		return m, nil
+	case "+":
+		if m.focusIndex == 0 && len(m.inputs) > 0 {
+			currentValue := m.inputs[0].Value()
+			calculatedValue, success := tryCalculateAmount(currentValue)
+			if success {
+				m.inputs[0].SetValue(calculatedValue)
+				m.message = "Calculated: " + calculatedValue
+				m.messageType = "info"
+			}
+		}
 	}
 
 	// Update text input
@@ -767,6 +788,16 @@ func (m *Model) updateAddDebtView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.inputs = nil
 		m.cursor = 0
 		return m, nil
+	case "+":
+		if m.focusIndex == 2 && len(m.inputs) > 0 {
+			currentValue := m.inputs[2].Value()
+			calculatedValue, success := tryCalculateAmount(currentValue)
+			if success {
+				m.inputs[2].SetValue(calculatedValue)
+				m.message = "Calculated: " + calculatedValue
+				m.messageType = "info"
+			}
+		}
 	}
 
 	if len(m.inputs) > 0 && m.focusIndex < len(m.inputs) {
@@ -877,6 +908,16 @@ func (m *Model) updateSettleDebtView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.selectedPerson = ""
 		m.cursor = 0
 		return m, nil
+	case "+":
+		if m.focusIndex == 0 && len(m.inputs) > 0 {
+			currentValue := m.inputs[0].Value()
+			calculatedValue, success := tryCalculateAmount(currentValue)
+			if success {
+				m.inputs[0].SetValue(calculatedValue)
+				m.message = "Calculated: " + calculatedValue
+				m.messageType = "info"
+			}
+		}
 	}
 
 	if len(m.inputs) > 0 && m.focusIndex < len(m.inputs) {
@@ -951,20 +992,20 @@ func (m *Model) updateNetWorthView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.initInvestmentInputs()
 	case "d":
 		if len(investments) > 0 && m.cursor < len(investments) {
-			m.storage.DeleteInvestment(investments[m.cursor].ID)
-			m.message = "Investment deleted"
-			m.messageType = "success"
-			if m.cursor > 0 {
-				m.cursor--
-			}
+			m.currentView = ViewConfirmDelete
+			m.inputs = nil
 		}
 	case "u":
 		if len(investments) > 0 && m.cursor < len(investments) {
 			m.selectedID = investments[m.cursor].ID
-			// Quick update - just ask for new value
-			m.inputs = make([]textinput.Model, 1)
+			m.currentView = ViewUpdateInvestment
+			m.inputs = make([]textinput.Model, 2)
 			m.inputs[0] = textinput.New()
-			m.inputs[0].Placeholder = "New current value"
+			m.inputs[0].Placeholder = "New invested amount"
+			m.inputs[0].SetValue(fmt.Sprintf("%.2f", investments[m.cursor].InvestedAmount))
+			m.inputs[1] = textinput.New()
+			m.inputs[1].Placeholder = "New current value"
+			m.inputs[1].SetValue(fmt.Sprintf("%.2f", investments[m.cursor].CurrentValue))
 			m.inputs[0].Focus()
 			m.focusIndex = 0
 		}
@@ -1036,6 +1077,51 @@ func (m Model) viewAddInvestment() string {
 	return BoxStyle.Render(title + "\n" + content + help)
 }
 
+func (m Model) viewUpdateInvestment() string {
+	title := TitleStyle.Render("  Update Investment Value")
+
+	var content string
+	content += "\n"
+
+	labels := []string{"New invested amount:", "New current value:"}
+	hints := []string{"Enter the new invested amount", "Enter the new current value"}
+
+	for i, input := range m.inputs {
+		label := labels[i]
+		if i == m.focusIndex {
+			content += "  " + SelectedMenuItemStyle.Render("▸ "+label) + "\n"
+			content += "  " + FocusedInputStyle.Render(input.View()) + "\n"
+			if hints[i] != "" {
+				content += "  " + MutedStyle.Render(hints[i]) + "\n"
+			}
+			content += "\n"
+		} else {
+			content += "  " + MenuItemStyle.Render("  "+label) + "\n"
+			content += "  " + InputStyle.Render(input.View()) + "\n"
+			if hints[i] != "" {
+				content += "  " + MutedStyle.Render(hints[i]) + "\n"
+			}
+			content += "\n"
+		}
+	}
+
+	help := HelpStyle.Render("\n  Tab: Next field • Enter: Save • Esc: Cancel")
+
+	return BoxStyle.Render(title + "\n" + content + help)
+}
+
+func (m Model) viewConfirmDelete() string {
+	title := TitleStyle.Render("  Confirm Delete")
+
+	var content string
+	content += "\n  Are you sure you want to delete this investment?\n\n"
+	content += "  This action cannot be undone.\n"
+
+	help := HelpStyle.Render("\n  Enter: Yes, delete • Esc: Cancel")
+
+	return BoxStyle.Render(title + content + help)
+}
+
 func (m *Model) updateAddInvestmentView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "tab", "down":
@@ -1100,6 +1186,16 @@ func (m *Model) updateAddInvestmentView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.inputs = nil
 		m.cursor = 0
 		return m, nil
+	case "+":
+		if (m.focusIndex == 2 || m.focusIndex == 3) && len(m.inputs) > 0 {
+			currentValue := m.inputs[m.focusIndex].Value()
+			calculatedValue, success := tryCalculateAmount(currentValue)
+			if success {
+				m.inputs[m.focusIndex].SetValue(calculatedValue)
+				m.message = "Calculated: " + calculatedValue
+				m.messageType = "info"
+			}
+		}
 	}
 
 	if len(m.inputs) > 0 && m.focusIndex < len(m.inputs) {
@@ -1107,6 +1203,98 @@ func (m *Model) updateAddInvestmentView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.inputs[m.focusIndex], cmd = m.inputs[m.focusIndex].Update(msg)
 		return m, cmd
 	}
+	return m, nil
+}
+
+func (m *Model) updateUpdateInvestmentView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "tab", "down":
+		m.inputs[m.focusIndex].Blur()
+		m.focusIndex = (m.focusIndex + 1) % len(m.inputs)
+		m.inputs[m.focusIndex].Focus()
+	case "shift+tab", "up":
+		m.inputs[m.focusIndex].Blur()
+		m.focusIndex--
+		if m.focusIndex < 0 {
+			m.focusIndex = len(m.inputs) - 1
+		}
+		m.inputs[m.focusIndex].Focus()
+	case "enter":
+		if m.inputs[0].Value() == "" || m.inputs[1].Value() == "" {
+			m.message = "Both values are required"
+			m.messageType = "error"
+			return m, nil
+		}
+
+		investedAmount, err := strconv.ParseFloat(m.inputs[0].Value(), 64)
+		if err != nil {
+			m.message = "Invalid invested amount"
+			m.messageType = "error"
+			return m, nil
+		}
+
+		currentValue, err := strconv.ParseFloat(m.inputs[1].Value(), 64)
+		if err != nil {
+			m.message = "Invalid current value"
+			m.messageType = "error"
+			return m, nil
+		}
+
+		if investedAmount < 0 || currentValue < 0 {
+			m.message = "Values must be positive"
+			m.messageType = "error"
+			return m, nil
+		}
+
+		err = m.storage.UpdateInvestment(m.selectedID, investedAmount, currentValue)
+		if err != nil {
+			m.message = "Error updating: " + err.Error()
+			m.messageType = "error"
+			return m, nil
+		}
+
+		m.message = "Investment updated!"
+		m.messageType = "success"
+		m.currentView = ViewNetWorth
+		m.inputs = nil
+		m.selectedID = ""
+		m.cursor = 0
+		return m, nil
+	case "+":
+		if (m.focusIndex == 0 || m.focusIndex == 1) && len(m.inputs) > 0 {
+			currentValue := m.inputs[m.focusIndex].Value()
+			calculatedValue, success := tryCalculateAmount(currentValue)
+			if success {
+				m.inputs[m.focusIndex].SetValue(calculatedValue)
+				m.message = "Calculated: " + calculatedValue
+				m.messageType = "info"
+			}
+		}
+	}
+
+	if len(m.inputs) > 0 && m.focusIndex < len(m.inputs) {
+		var cmd tea.Cmd
+		m.inputs[m.focusIndex], cmd = m.inputs[m.focusIndex].Update(msg)
+		return m, cmd
+	}
+	return m, nil
+}
+
+func (m *Model) updateConfirmDeleteView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		investments := m.storage.GetInvestments()
+		if len(investments) > 0 && m.cursor < len(investments) {
+			m.storage.DeleteInvestment(investments[m.cursor].ID)
+			m.message = "Investment deleted"
+			m.messageType = "success"
+		}
+		m.currentView = ViewNetWorth
+		m.inputs = nil
+		m.cursor = 0
+		return m, nil
+	}
+
 	return m, nil
 }
 
@@ -1278,6 +1466,16 @@ func (m *Model) updateAddSavingsTargetView(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		m.inputs = nil
 		m.cursor = 0
 		return m, nil
+	case "+":
+		if m.focusIndex == 1 && len(m.inputs) > 0 {
+			currentValue := m.inputs[1].Value()
+			calculatedValue, success := tryCalculateAmount(currentValue)
+			if success {
+				m.inputs[1].SetValue(calculatedValue)
+				m.message = "Calculated: " + calculatedValue
+				m.messageType = "info"
+			}
+		}
 	}
 
 	if len(m.inputs) > 0 && m.focusIndex < len(m.inputs) {
@@ -1360,6 +1558,16 @@ func (m *Model) updateAddContributionView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.selectedID = ""
 		m.cursor = 0
 		return m, nil
+	case "+":
+		if m.focusIndex == 0 && len(m.inputs) > 0 {
+			currentValue := m.inputs[0].Value()
+			calculatedValue, success := tryCalculateAmount(currentValue)
+			if success {
+				m.inputs[0].SetValue(calculatedValue)
+				m.message = "Calculated: " + calculatedValue
+				m.messageType = "info"
+			}
+		}
 	}
 
 	if len(m.inputs) > 0 && m.focusIndex < len(m.inputs) {
@@ -1466,4 +1674,111 @@ func truncate(s string, max int) string {
 func (m *Model) setMessage(msg, msgType string) {
 	m.message = msg
 	m.messageType = msgType
+}
+
+func evaluateMathExpression(expr string) (float64, error) {
+	expr = strings.TrimSpace(expr)
+	if expr == "" {
+		return 0, fmt.Errorf("empty expression")
+	}
+
+	parts := strings.Split(expr, "+")
+	if len(parts) > 1 {
+		var result float64
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			val, err := strconv.ParseFloat(part, 64)
+			if err != nil {
+				return 0, err
+			}
+			result += val
+		}
+		return result, nil
+	}
+
+	parts = strings.Split(expr, "-")
+	if len(parts) > 1 {
+		val0, err := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+		if err != nil {
+			return 0, err
+		}
+		result := val0
+		for _, part := range parts[1:] {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			val, err := strconv.ParseFloat(part, 64)
+			if err != nil {
+				return 0, err
+			}
+			result -= val
+		}
+		return result, nil
+	}
+
+	parts = strings.Split(expr, "*")
+	if len(parts) > 1 {
+		result := 1.0
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			val, err := strconv.ParseFloat(part, 64)
+			if err != nil {
+				return 0, err
+			}
+			result *= val
+		}
+		return result, nil
+	}
+
+	parts = strings.Split(expr, "/")
+	if len(parts) > 1 {
+		val0, err := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+		if err != nil {
+			return 0, err
+		}
+		result := val0
+		for _, part := range parts[1:] {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			val, err := strconv.ParseFloat(part, 64)
+			if err != nil {
+				return 0, err
+			}
+			if val == 0 {
+				return 0, fmt.Errorf("division by zero")
+			}
+			result /= val
+		}
+		return result, nil
+	}
+
+	return strconv.ParseFloat(expr, 64)
+}
+
+func tryCalculateAmount(value string) (string, bool) {
+	cleanValue := strings.TrimSpace(value)
+
+	if strings.ContainsAny(cleanValue, "+-*/") {
+		for _, char := range cleanValue {
+			if !unicode.IsDigit(char) && char != '.' && char != ' ' && char != '+' && char != '-' && char != '*' && char != '/' {
+				return value, false
+			}
+		}
+
+		result, err := evaluateMathExpression(cleanValue)
+		if err == nil {
+			return strconv.FormatFloat(result, 'f', -1, 64), true
+		}
+	}
+
+	return value, false
 }

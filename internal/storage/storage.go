@@ -308,6 +308,19 @@ func (s *Storage) UpdateInvestmentValue(id string, currentValue float64) error {
 	return nil
 }
 
+// UpdateInvestment updates both invested amount and current value of an investment
+func (s *Storage) UpdateInvestment(id string, investedAmount, currentValue float64) error {
+	for i, inv := range s.data.Investments {
+		if inv.ID == id {
+			s.data.Investments[i].InvestedAmount = investedAmount
+			s.data.Investments[i].CurrentValue = currentValue
+			s.data.Investments[i].UpdatedAt = time.Now()
+			return s.Save()
+		}
+	}
+	return nil
+}
+
 // GetInvestments returns all investments
 func (s *Storage) GetInvestments() []models.Investment {
 	return s.data.Investments
