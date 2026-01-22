@@ -540,23 +540,28 @@ func (m Model) viewDebts() string {
 		}
 
 		content = "\n"
-		for i, key := range groupOrder {
+		visibleIndex := 0
+		for _, key := range groupOrder {
 			group := groupMap[key]
-
-			cursor := "  "
-			if i == m.cursor {
-				cursor = "▸ "
-			}
 
 			// Calculate net balance (positive = they owe you, negative = you owe them)
 			netBalance := group.totalLent - group.totalBorrowed
+
+			// Skip if net balance is 0 (all settled)
+			if netBalance == 0 {
+				continue
+			}
+
+			cursor := "  "
+			if visibleIndex == m.cursor {
+				cursor = "▸ "
+			}
+
 			var netStatus string
 			if netBalance > 0 {
 				netStatus = AmountPositiveStyle.Render(fmt.Sprintf("owes you %s", FormatAmountPlain(netBalance, m.config.Currency)))
-			} else if netBalance < 0 {
-				netStatus = AmountNegativeStyle.Render(fmt.Sprintf("you owe %s", FormatAmountPlain(-netBalance, m.config.Currency)))
 			} else {
-				netStatus = MutedStyle.Render("settled")
+				netStatus = AmountNegativeStyle.Render(fmt.Sprintf("you owe %s", FormatAmountPlain(-netBalance, m.config.Currency)))
 			}
 
 			header := fmt.Sprintf("%s%s  [%s]",
@@ -600,6 +605,7 @@ func (m Model) viewDebts() string {
 				}
 			}
 			content += "\n"
+			visibleIndex++
 		}
 	}
 
@@ -620,8 +626,10 @@ func (m *Model) updateDebtsView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Build the same grouped structure as the view (by person name)
 	type personGroup struct {
-		name  string
-		debts []models.DebtTransaction
+		name          string
+		totalLent     float64
+		totalBorrowed float64
+		debts         []models.DebtTransaction
 	}
 
 	groupMap := make(map[string]*personGroup)
@@ -631,17 +639,39 @@ func (m *Model) updateDebtsView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		key := debt.PersonName
 		if _, exists := groupMap[key]; !exists {
 			groupMap[key] = &personGroup{
-				name:  debt.PersonName,
-				debts: []models.DebtTransaction{},
+				name:          debt.PersonName,
+				totalLent:     0,
+				totalBorrowed: 0,
+				debts:         []models.DebtTransaction{},
 			}
 			groupOrder = append(groupOrder, key)
 		}
 		groupMap[key].debts = append(groupMap[key].debts, debt)
+		if debt.Type == models.Lent {
+			groupMap[key].totalLent += debt.Amount
+		} else {
+			groupMap[key].totalBorrowed += debt.Amount
+		}
 	}
 
-	maxCursor := len(groupOrder) - 1
+	// Count only visible persons (net balance != 0)
+	visibleCount := 0
+	for _, key := range groupOrder {
+		group := groupMap[key]
+		netBalance := group.totalLent - group.totalBorrowed
+		if netBalance != 0 {
+			visibleCount++
+		}
+	}
+
+	maxCursor := visibleCount - 1
 	if maxCursor < 0 {
 		maxCursor = 0
+	}
+
+	// Adjust cursor if it went out of bounds
+	if m.cursor > maxCursor {
+		m.cursor = maxCursor
 	}
 
 	switch msg.String() {
@@ -843,7 +873,7 @@ func (m Model) viewSettleDebt() string {
 			AmountNegativeStyle.Render(FormatAmountPlain(-netBalance, m.config.Currency)),
 		)
 	} else {
-		statusLine = fmt.Sprintf("  %s - All settled!\n\n", m.selectedPerson)
+		statusLine = fmt.Sprintf("  %s - All unsettled transactions will be marked as settled!\n\n", m.selectedPerson)
 	}
 
 	var content string
@@ -872,7 +902,6 @@ func (m *Model) updateSettleDebtView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var amountToSettle float64
 
 		if m.inputs[0].Value() == "" {
-			// Settle all
 			amountToSettle = absBalance
 		} else {
 			var err error
@@ -887,7 +916,7 @@ func (m *Model) updateSettleDebtView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.messageType = "error"
 				return m, nil
 			}
-			if amountToSettle > absBalance {
+			if absBalance > 0 && amountToSettle > absBalance {
 				m.message = fmt.Sprintf("Amount exceeds balance (max: %.2f)", absBalance)
 				m.messageType = "error"
 				return m, nil

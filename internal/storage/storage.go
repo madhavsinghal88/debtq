@@ -186,6 +186,7 @@ func (s *Storage) PartialSettleDebt(personName string, amount float64, settleTyp
 }
 
 // SettleAmountForPerson settles a specific amount for a person (handles both lent and borrowed)
+// It calculates net balance and settles appropriately
 func (s *Storage) SettleAmountForPerson(personName string, amount float64) (float64, error) {
 	// Calculate current balances
 	var totalLent, totalBorrowed float64
@@ -206,6 +207,9 @@ func (s *Storage) SettleAmountForPerson(personName string, amount float64) (floa
 	if netBalance > 0 {
 		// They owe us - settle from lent transactions
 		remainingToSettle := amount
+		if remainingToSettle == 0 || remainingToSettle > netBalance {
+			remainingToSettle = netBalance
+		}
 		for i, tx := range s.data.DebtTransactions {
 			if tx.PersonName == personName && tx.Type == models.Lent && !tx.IsSettled && remainingToSettle > 0 {
 				if tx.Amount <= remainingToSettle {
@@ -220,9 +224,29 @@ func (s *Storage) SettleAmountForPerson(personName string, amount float64) (floa
 				}
 			}
 		}
+		// Also settle borrowed transactions up to the same amount (offsetting)
+		offsetSettle := netBalance
+		if offsetSettle == 0 {
+			offsetSettle = netBalance
+		}
+		for i, tx := range s.data.DebtTransactions {
+			if tx.PersonName == personName && tx.Type == models.Borrowed && !tx.IsSettled && offsetSettle > 0 {
+				if tx.Amount <= offsetSettle {
+					s.data.DebtTransactions[i].IsSettled = true
+					s.data.DebtTransactions[i].SettledDate = &now
+					offsetSettle -= tx.Amount
+				} else {
+					s.data.DebtTransactions[i].Amount -= offsetSettle
+					offsetSettle = 0
+				}
+			}
+		}
 	} else if netBalance < 0 {
 		// We owe them - settle from borrowed transactions
 		remainingToSettle := amount
+		if remainingToSettle == 0 || remainingToSettle > -netBalance {
+			remainingToSettle = -netBalance
+		}
 		for i, tx := range s.data.DebtTransactions {
 			if tx.PersonName == personName && tx.Type == models.Borrowed && !tx.IsSettled && remainingToSettle > 0 {
 				if tx.Amount <= remainingToSettle {
@@ -236,6 +260,37 @@ func (s *Storage) SettleAmountForPerson(personName string, amount float64) (floa
 					remainingToSettle = 0
 				}
 			}
+		}
+		// Also settle lent transactions up to the same amount (offsetting)
+		offsetSettle := netBalance
+		if offsetSettle == 0 {
+			offsetSettle = -netBalance
+		}
+		for i, tx := range s.data.DebtTransactions {
+			if tx.PersonName == personName && tx.Type == models.Lent && !tx.IsSettled && offsetSettle > 0 {
+				if tx.Amount <= offsetSettle {
+					s.data.DebtTransactions[i].IsSettled = true
+					s.data.DebtTransactions[i].SettledDate = &now
+					offsetSettle -= tx.Amount
+				} else {
+					s.data.DebtTransactions[i].Amount -= offsetSettle
+					offsetSettle = 0
+				}
+			}
+		}
+	} else if netBalance == 0 {
+		// Net is 0 but there might be unsettled transactions - settle all
+		var hasUnsettled bool
+		for i, tx := range s.data.DebtTransactions {
+			if tx.PersonName == personName && !tx.IsSettled {
+				s.data.DebtTransactions[i].IsSettled = true
+				s.data.DebtTransactions[i].SettledDate = &now
+				settled += tx.Amount
+				hasUnsettled = true
+			}
+		}
+		if !hasUnsettled {
+			return 0, nil
 		}
 	}
 
