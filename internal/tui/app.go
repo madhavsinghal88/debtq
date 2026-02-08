@@ -715,7 +715,8 @@ func (m *Model) initDebtInputs() {
 	m.inputs[3].Placeholder = "Description"
 
 	m.inputs[4] = textinput.New()
-	m.inputs[4].Placeholder = "Due Date (YYYY-MM-DD, optional)"
+	m.inputs[4].Placeholder = "Transaction Date (YYYY-MM-DD)"
+	m.inputs[4].SetValue(time.Now().Format("2006-01-02"))
 
 	m.focusIndex = 0
 }
@@ -724,13 +725,13 @@ func (m Model) viewAddDebt() string {
 	title := TitleStyle.Render("  Add Debt Transaction")
 
 	var content string
-	labels := []string{"Type:", "Person:", "Amount:", "Description:", "Due Date:"}
+	labels := []string{"Type:", "Person:", "Amount:", "Description:", "Date:"}
 	hints := []string{
 		"Options: borrowed, lent",
 		"",
 		"",
 		"",
-		"Format: YYYY-MM-DD (optional)",
+		"Date when borrowed/lent (YYYY-MM-DD)",
 	}
 
 	for i, input := range m.inputs {
@@ -794,18 +795,21 @@ func (m *Model) updateAddDebtView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		description := m.inputs[3].Value()
 
-		var dueDate *time.Time
-		if m.inputs[4].Value() != "" {
-			d, err := time.Parse("2006-01-02", m.inputs[4].Value())
-			if err != nil {
-				m.message = "Invalid date format"
-				m.messageType = "error"
-				return m, nil
-			}
-			dueDate = &d
+		// Parse transaction date
+		dateStr := m.inputs[4].Value()
+		if dateStr == "" {
+			m.message = "Transaction date is required"
+			m.messageType = "error"
+			return m, nil
+		}
+		transactionDate, err := time.Parse("2006-01-02", dateStr)
+		if err != nil {
+			m.message = "Invalid date format. Use YYYY-MM-DD"
+			m.messageType = "error"
+			return m, nil
 		}
 
-		_, err = m.storage.AddDebtTransaction(txType, personName, amount, description, time.Now(), dueDate)
+		_, err = m.storage.AddDebtTransaction(txType, personName, amount, description, transactionDate, nil)
 		if err != nil {
 			m.message = "Error saving: " + err.Error()
 			m.messageType = "error"

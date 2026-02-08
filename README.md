@@ -17,7 +17,7 @@ A terminal-based personal finance tracker built with Go and [Bubble Tea](https:/
 - **Smart grouping**: Combines all transactions with the same person
 - **Net balance calculation**: Shows who owes whom and how much
 - **Partial settlements**: Settle specific amounts instead of full transactions
-- Due date tracking
+- **Custom transaction dates**: Enter the actual date when money was borrowed/lent
 
 ### My Net Worth
 - Track various investment types:
