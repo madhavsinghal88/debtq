@@ -36,18 +36,30 @@ const (
 
 // DebtTransaction represents money borrowed or lent
 type DebtTransaction struct {
-	ID               string          `json:"id"`
-	Type             TransactionType `json:"type"`
-	PersonName       string          `json:"person_name"`
-	Amount           float64         `json:"amount"`
-	Description      string          `json:"description"`
-	Date             time.Time       `json:"date"`
-	DueDate          *time.Time      `json:"due_date,omitempty"`
-	IsSettled        bool            `json:"is_settled"`
-	SettledDate      *time.Time      `json:"settled_date,omitempty"`
-	SettlementAmount float64         `json:"settlement_amount,omitempty"` // Amount actually settled
-	SettlementNote   string          `json:"settlement_note,omitempty"`   // Why it was settled
-	CreatedAt        time.Time       `json:"created_at"`
+	ID             string          `json:"id"`
+	Type           TransactionType `json:"type"`
+	PersonName     string          `json:"person_name"`
+	Amount         float64         `json:"amount"`          // Remaining amount (decreases with partial settlements)
+	OriginalAmount float64         `json:"original_amount"` // Original amount (never changes)
+	Description    string          `json:"description"`
+	Date           time.Time       `json:"date"`
+	DueDate        *time.Time      `json:"due_date,omitempty"`
+	IsSettled      bool            `json:"is_settled"`
+	SettledDate    *time.Time      `json:"settled_date,omitempty"`
+	SettlementNote string          `json:"settlement_note,omitempty"`
+	CreatedAt      time.Time       `json:"created_at"`
+}
+
+// Settlement represents a payment/settlement record
+type Settlement struct {
+	ID            string          `json:"id"`
+	TransactionID string          `json:"transaction_id"` // Reference to original debt transaction
+	PersonName    string          `json:"person_name"`
+	Type          TransactionType `json:"type"` // borrowed or lent (from original transaction)
+	Amount        float64         `json:"amount"`
+	Note          string          `json:"note,omitempty"`
+	Date          time.Time       `json:"date"`
+	CreatedAt     time.Time       `json:"created_at"`
 }
 
 // InvestmentType represents types of investments
@@ -106,6 +118,7 @@ type SavingsContribution struct {
 type Data struct {
 	Expenses             []Expense             `json:"expenses"`
 	DebtTransactions     []DebtTransaction     `json:"debt_transactions"`
+	Settlements          []Settlement          `json:"settlements"`
 	Investments          []Investment          `json:"investments"`
 	SavingsTargets       []SavingsTarget       `json:"savings_targets"`
 	SavingsContributions []SavingsContribution `json:"savings_contributions"`

@@ -24,9 +24,9 @@ const (
 	ViewAddExpense
 	ViewDebts
 	ViewAddDebt
-	ViewSelectTransactionToSettle
 	ViewSettleDebt
-	ViewDebtHistory
+	ViewSelectTransaction
+	ViewSettlementHistory
 	ViewPersonHistory
 	ViewNetWorth
 	ViewAddInvestment
@@ -53,6 +53,7 @@ type Model struct {
 	messageType    string // "success", "error", "info"
 	selectedID     string
 	selectedPerson string
+	selectedTxID   string // For tracking selected transaction during settlement
 	width          int
 	height         int
 }
@@ -90,31 +91,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch msg.String() {
-		case "ctrl+c":
-			return m, tea.Quit
-
-		case "q":
+		case "ctrl+c", "q":
 			if m.currentView == ViewMain {
 				return m, tea.Quit
-			}
-			// For views that have their own back navigation, let them handle it
-			if m.currentView == ViewPersonHistory || m.currentView == ViewDebtHistory {
-				// Let view-specific handler deal with it
-				break
-			}
-			m.currentView = ViewMain
-			m.cursor = 0
-			m.inputs = nil
-			return m, nil
-
-		case "esc":
-			if m.currentView == ViewMain {
-				return m, nil
-			}
-			// For views that have their own back navigation, let them handle it
-			if m.currentView == ViewPersonHistory || m.currentView == ViewDebtHistory {
-				// Let view-specific handler deal with it
-				break
 			}
 			m.currentView = ViewMain
 			m.cursor = 0
@@ -134,12 +113,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateDebtsView(msg)
 		case ViewAddDebt:
 			return m.updateAddDebtView(msg)
-		case ViewSelectTransactionToSettle:
-			return m.updateSelectTransactionToSettleView(msg)
 		case ViewSettleDebt:
 			return m.updateSettleDebtView(msg)
-		case ViewDebtHistory:
-			return m.updateDebtHistoryView(msg)
+		case ViewSelectTransaction:
+			return m.updateSelectTransactionView(msg)
+		case ViewSettlementHistory:
+			return m.updateSettlementHistoryView(msg)
 		case ViewPersonHistory:
 			return m.updatePersonHistoryView(msg)
 		case ViewNetWorth:
@@ -188,12 +167,12 @@ func (m Model) View() string {
 		content = m.viewDebts()
 	case ViewAddDebt:
 		content = m.viewAddDebt()
-	case ViewSelectTransactionToSettle:
-		content = m.viewSelectTransactionToSettle()
 	case ViewSettleDebt:
 		content = m.viewSettleDebt()
-	case ViewDebtHistory:
-		content = m.viewDebtHistory()
+	case ViewSelectTransaction:
+		content = m.viewSelectTransaction()
+	case ViewSettlementHistory:
+		content = m.viewSettlementHistory()
 	case ViewPersonHistory:
 		content = m.viewPersonHistory()
 	case ViewNetWorth:
@@ -233,111 +212,35 @@ func (m Model) View() string {
 	return content
 }
 
-// Main menu view - Beautiful centered layout with icons
+// Main menu view
 func (m Model) viewMain() string {
-	// Build the app header with branding
-	header := AppTitleStyle.Width(70).Render("💰 DebtQ - Personal Money Tracker")
-	subtitle := AppSubtitleStyle.Width(70).Render("Track expenses, debts, investments & savings goals")
+	title := TitleStyle.Render("  DebtQ - Personal Money Tracker")
+	subtitle := SubtitleStyle.Render("Track expenses, debts, investments & savings goals")
 
-	// Menu items with icons and descriptions
-	type menuItem struct {
-		icon        string
-		title       string
-		description string
+	menuItems := []string{
+		"Expenses",
+		"Borrowing & Lending",
+		"My Net Worth",
+		"Savings Goals",
+		"Stats & Dashboard",
+		"Sync to Obsidian",
+		"Quit",
 	}
 
-	menuItems := []menuItem{
-		{"💳", "Expenses", "Track your daily spending"},
-		{"🤝", "Borrowing & Lending", "Manage debts with friends"},
-		{"📈", "My Net Worth", "Monitor investments & assets"},
-		{"🎯", "Savings Goals", "Save for what matters"},
-		{"📊", "Stats & Dashboard", "View financial insights"},
-		{"📝", "Sync to Obsidian", "Export to markdown"},
-		{"👋", "Quit", "Exit the application"},
-	}
-
-	// Build menu with cards
-	var menuContent strings.Builder
-	menuContent.WriteString("\n")
-
+	menu := "\n"
 	for i, item := range menuItems {
-		// Create card for each menu item
-		var card lipgloss.Style
+		cursor := "  "
+		style := MenuItemStyle
 		if i == m.cursor {
-			card = CardSelectedStyle.Width(66)
-		} else {
-			card = CardStyle.Width(66)
+			cursor = "▸ "
+			style = SelectedMenuItemStyle
 		}
-
-		// Icon with color
-		iconStyle := lipgloss.NewStyle().
-			Foreground(Primary).
-			Bold(true).
-			Width(3)
-
-		// Title styling
-		titleStyle := lipgloss.NewStyle().
-			Foreground(Gray100).
-			Bold(true).
-			Width(25)
-
-		// Description styling
-		descStyle := lipgloss.NewStyle().
-			Foreground(Gray500).
-			Width(35)
-
-		// Selection indicator
-		indicator := "  "
-		if i == m.cursor {
-			indicator = "▸ "
-			iconStyle = iconStyle.Foreground(Primary)
-			titleStyle = titleStyle.Foreground(Primary)
-		}
-
-		// Build row
-		row := fmt.Sprintf("%s%s %s %s",
-			indicator,
-			iconStyle.Render(item.icon),
-			titleStyle.Render(item.title),
-			descStyle.Render(item.description),
-		)
-
-		menuContent.WriteString(card.Render(row))
-		menuContent.WriteString("\n")
+		menu += style.Render(cursor+item) + "\n"
 	}
 
-	// Help footer with styled keys
-	helpBar := lipgloss.NewStyle().
-		Background(Gray800).
-		Foreground(Gray400).
-		Padding(0, 2).
-		Width(66).
-		Render("↑/↓ Navigate • Enter Select • q Quit")
+	help := HelpStyle.Render("↑/↓: Navigate • Enter: Select • q: Quit")
 
-	// Quick stats preview
-	data := m.storage.GetData()
-	statsSection := ""
-	if len(data.Expenses) > 0 || len(data.DebtTransactions) > 0 {
-		statsContent := fmt.Sprintf("📊 %d Expenses  •  💸 %d Debts  •  📈 %d Investments",
-			len(data.Expenses),
-			len(data.DebtTransactions),
-			len(data.Investments))
-		statsSection = lipgloss.NewStyle().
-			Foreground(Gray500).
-			MarginTop(1).
-			Render(statsContent) + "\n"
-	}
-
-	// Combine everything
-	content := lipgloss.JoinVertical(lipgloss.Center,
-		header,
-		subtitle,
-		menuContent.String(),
-		statsSection,
-		helpBar,
-	)
-
-	return content
+	return BoxStyle.Render(title + "\n" + subtitle + menu + "\n" + help)
 }
 
 func (m *Model) updateMainView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -462,6 +365,9 @@ func (m *Model) updateExpensesView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+	case "esc":
+		m.currentView = ViewMain
+		m.cursor = 0
 	}
 
 	return m, nil
@@ -588,6 +494,11 @@ func (m *Model) updateAddExpenseView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.messageType = "info"
 			}
 		}
+	case "esc":
+		m.currentView = ViewExpenses
+		m.inputs = nil
+		m.cursor = 0
+		return m, nil
 	}
 
 	// Update text input
@@ -599,26 +510,18 @@ func (m *Model) updateAddExpenseView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// Debts view - Beautiful card-based layout
+// Debts view
 func (m Model) viewDebts() string {
-	// Header with icon
-	header := AppTitleStyle.Width(70).Render("🤝 Borrowing & Lending")
+	title := TitleStyle.Render("  Borrowing & Lending")
 
 	debts := m.storage.GetUnsettledDebts()
 	data := m.storage.GetData()
 
-	var content strings.Builder
-
+	var content string
 	if len(debts) == 0 {
-		emptyState := CardStyle.Width(66).Render(
-			lipgloss.NewStyle().
-				Foreground(Gray500).
-				Align(lipgloss.Center).
-				Render("\n  📭 No unsettled debts\n  All caught up!\n"),
-		)
-		content.WriteString(emptyState)
+		content = MutedStyle.Render("\n  No unsettled debts.\n")
 	} else {
-		// Group debts by person
+		// Group debts by person (combine borrowed and lent)
 		type personGroup struct {
 			name          string
 			totalLent     float64
@@ -627,6 +530,7 @@ func (m Model) viewDebts() string {
 			borrowedDebts []models.DebtTransaction
 		}
 
+		// Use a map to group by person name only
 		groupMap := make(map[string]*personGroup)
 		var groupOrder []string
 
@@ -651,113 +555,86 @@ func (m Model) viewDebts() string {
 			}
 		}
 
-		content.WriteString("\n")
+		content = "\n"
 		visibleIndex := 0
 		for _, key := range groupOrder {
 			group := groupMap[key]
+
+			// Calculate net balance (positive = they owe you, negative = you owe them)
 			netBalance := group.totalLent - group.totalBorrowed
 
+			// Skip if net balance is 0 (all settled)
 			if netBalance == 0 {
 				continue
 			}
 
-			// Create person card
-			var card lipgloss.Style
+			cursor := "  "
 			if visibleIndex == m.cursor {
-				card = CardSelectedStyle.Width(66)
-			} else {
-				card = CardStyle.Width(66)
+				cursor = "▸ "
 			}
 
-			// Person header with status
-			var statusIcon, statusText string
+			var netStatus string
 			if netBalance > 0 {
-				statusIcon = "📥"
-				statusText = RenderBadge(fmt.Sprintf("Owes you %s", FormatMoneyPlain(netBalance, m.config.Currency)), "success")
+				netStatus = AmountPositiveStyle.Render(fmt.Sprintf("owes you %s", FormatAmountPlain(netBalance, m.config.Currency)))
 			} else {
-				statusIcon = "📤"
-				statusText = RenderBadge(fmt.Sprintf("You owe %s", FormatMoneyPlain(-netBalance, m.config.Currency)), "danger")
+				netStatus = AmountNegativeStyle.Render(fmt.Sprintf("you owe %s", FormatAmountPlain(-netBalance, m.config.Currency)))
 			}
 
-			indicator := "  "
-			if visibleIndex == m.cursor {
-				indicator = "▸ "
-			}
-
-			personHeader := fmt.Sprintf("%s%s %s %s",
-				indicator,
-				statusIcon,
-				lipgloss.NewStyle().Bold(true).Foreground(Gray100).Render(group.name),
-				statusText,
+			header := fmt.Sprintf("%s%s  [%s]",
+				cursor,
+				SelectedMenuItemStyle.Render(group.name),
+				netStatus,
 			)
-
-			var cardContent strings.Builder
-			cardContent.WriteString(personHeader + "\n\n")
+			content += header + "\n"
 
 			// Show lent transactions
 			if len(group.lentDebts) > 0 {
-				cardContent.WriteString(lipgloss.NewStyle().Foreground(Secondary).Bold(true).Render("  📤 Lent") + "\n")
+				content += "      " + AmountPositiveStyle.Render("Lent:") + "\n"
 				for _, debt := range group.lentDebts {
 					reason := debt.Description
 					if reason == "" {
 						reason = "(no description)"
 					}
-					line := fmt.Sprintf("    %s  %s  %s\n",
-						MoneyPositiveStyle.Render("+"+FormatMoneyPlain(debt.Amount, m.config.Currency)),
-						lipgloss.NewStyle().Foreground(Gray300).Render(truncate(reason, 25)),
-						lipgloss.NewStyle().Foreground(Gray500).Render(debt.Date.Format("Jan 02")),
+					line := fmt.Sprintf("        + %s - %s  %s",
+						FormatAmountPlain(debt.Amount, m.config.Currency),
+						MutedStyle.Render(truncate(reason, 25)),
+						MutedStyle.Render(debt.Date.Format("2006-01-02")),
 					)
-					cardContent.WriteString(line)
+					content += line + "\n"
 				}
 			}
 
 			// Show borrowed transactions
 			if len(group.borrowedDebts) > 0 {
-				cardContent.WriteString(lipgloss.NewStyle().Foreground(Danger).Bold(true).Render("  📥 Borrowed") + "\n")
+				content += "      " + AmountNegativeStyle.Render("Borrowed:") + "\n"
 				for _, debt := range group.borrowedDebts {
 					reason := debt.Description
 					if reason == "" {
 						reason = "(no description)"
 					}
-					line := fmt.Sprintf("    %s  %s  %s\n",
-						MoneyNegativeStyle.Render("-"+FormatMoneyPlain(debt.Amount, m.config.Currency)),
-						lipgloss.NewStyle().Foreground(Gray300).Render(truncate(reason, 25)),
-						lipgloss.NewStyle().Foreground(Gray500).Render(debt.Date.Format("Jan 02")),
+					line := fmt.Sprintf("        - %s - %s  %s",
+						FormatAmountPlain(debt.Amount, m.config.Currency),
+						MutedStyle.Render(truncate(reason, 25)),
+						MutedStyle.Render(debt.Date.Format("2006-01-02")),
 					)
-					cardContent.WriteString(line)
+					content += line + "\n"
 				}
 			}
-
-			content.WriteString(card.Render(cardContent.String()))
-			content.WriteString("\n")
+			content += "\n"
 			visibleIndex++
 		}
 	}
 
-	// Summary bar at bottom
-	stats := fmt.Sprintf("📥 Borrowed: %s  •  📤 Lent: %s  •  💰 Net: %s",
-		MoneyNegativeStyle.Render(FormatMoneyPlain(data.TotalBorrowed(), m.config.Currency)),
-		MoneyPositiveStyle.Render(FormatMoneyPlain(data.TotalLent(), m.config.Currency)),
+	// Summary
+	stats := fmt.Sprintf("  Total Borrowed: %s | Total Lent: %s | Net: %s",
+		AmountNegativeStyle.Render(FormatAmountPlain(data.TotalBorrowed(), m.config.Currency)),
+		AmountPositiveStyle.Render(FormatAmountPlain(data.TotalLent(), m.config.Currency)),
 		FormatAmount(data.TotalLent()-data.TotalBorrowed(), m.config.Currency),
 	)
 
-	// Help bar with styled keys
-	helpBar := lipgloss.NewStyle().
-		Background(Gray800).
-		Foreground(Gray400).
-		Padding(0, 2).
-		Width(66).
-		Render("a Add • s Settle • h History • i Details • Esc Back")
+	help := HelpStyle.Render("\n  a: Add debt • s: Settle • h: Person history • g: All payments • Esc: Back")
 
-	// Combine everything
-	result := lipgloss.JoinVertical(lipgloss.Left,
-		header,
-		content.String(),
-		stats,
-		helpBar,
-	)
-
-	return result
+	return BoxStyle.Render(title + content + stats + help)
 }
 
 func (m *Model) updateDebtsView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -826,347 +703,26 @@ func (m *Model) updateDebtsView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.currentView = ViewAddDebt
 		m.initDebtInputs()
 	case "s":
-		// Open transaction selection view for settling
+		// Open transaction selector for selected person
 		if len(groupOrder) > 0 && m.cursor < len(groupOrder) {
 			m.selectedPerson = groupOrder[m.cursor]
-			m.currentView = ViewSelectTransactionToSettle
+			m.currentView = ViewSelectTransaction
 			m.cursor = 0
 		}
 	case "h":
-		// View settlement history
-		m.currentView = ViewDebtHistory
-		m.cursor = 0
-	case "i":
-		// View person history (detailed view)
+		// Open payment history for selected person
 		if len(groupOrder) > 0 && m.cursor < len(groupOrder) {
 			m.selectedPerson = groupOrder[m.cursor]
 			m.currentView = ViewPersonHistory
 			m.cursor = 0
 		}
-	}
-
-	return m, nil
-}
-
-// Debt History view
-func (m Model) viewDebtHistory() string {
-	title := TitleStyle.Render("  Settlement History")
-
-	settledDebts := m.storage.GetSettledDebts()
-
-	var content string
-	if len(settledDebts) == 0 {
-		content = MutedStyle.Render("\n  No settled debts yet.\n")
-	} else {
-		// Sort by settled date (most recent first)
-		for i := len(settledDebts) - 1; i >= 0; i-- {
-			debt := settledDebts[i]
-
-			// Skip if settled date is nil (shouldn't happen but be safe)
-			if debt.SettledDate == nil {
-				continue
-			}
-
-			cursor := "  "
-			if len(settledDebts)-1-i == m.cursor {
-				cursor = "▸ "
-			}
-
-			// Format the settlement info
-			var typeStyle lipgloss.Style
-			var typeLabel string
-			if debt.Type == models.Lent {
-				typeStyle = AmountPositiveStyle
-				typeLabel = "Lent"
-			} else {
-				typeStyle = AmountNegativeStyle
-				typeLabel = "Borrowed"
-			}
-
-			line := fmt.Sprintf("%s%s %s %s",
-				cursor,
-				debt.SettledDate.Format("2006-01-02"),
-				SelectedMenuItemStyle.Render(debt.PersonName),
-				typeStyle.Render(fmt.Sprintf("[%s]", typeLabel)),
-			)
-			content += line + "\n"
-
-			// Show original amount and settlement details
-			content += fmt.Sprintf("    Original: %s",
-				FormatAmountPlain(debt.Amount, m.config.Currency),
-			)
-
-			// Show what was actually settled (might be different due to partial settlements)
-			if debt.SettlementAmount > 0 && debt.SettlementAmount != debt.Amount {
-				content += fmt.Sprintf(" | Settled: %s",
-					FormatAmountPlain(debt.SettlementAmount, m.config.Currency),
-				)
-			}
-			content += "\n"
-
-			// Show description if any
-			if debt.Description != "" {
-				content += fmt.Sprintf("    Reason: %s\n",
-					MutedStyle.Render(truncate(debt.Description, 40)),
-				)
-			}
-
-			// Show settlement note
-			if debt.SettlementNote != "" {
-				content += fmt.Sprintf("    Note: %s\n",
-					MutedStyle.Render(debt.SettlementNote),
-				)
-			} else {
-				content += fmt.Sprintf("    Note: %s\n",
-					MutedStyle.Render("(no note)"),
-				)
-			}
-
-			content += "\n"
-		}
-	}
-
-	help := HelpStyle.Render("\n  ↑/↓: Navigate • Esc: Back to debts")
-
-	return BoxStyle.Render(title + "\n" + content + help)
-}
-
-func (m *Model) updateDebtHistoryView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	settledDebts := m.storage.GetSettledDebts()
-	maxCursor := len(settledDebts) - 1
-	if maxCursor < 0 {
-		maxCursor = 0
-	}
-
-	switch msg.String() {
-	case "up", "k":
-		if m.cursor > 0 {
-			m.cursor--
-		}
-	case "down", "j":
-		if m.cursor < maxCursor {
-			m.cursor++
-		}
-	case "esc", "q":
-		m.currentView = ViewDebts
+	case "g":
+		// Open global settlement history
+		m.currentView = ViewSettlementHistory
 		m.cursor = 0
-	}
-
-	return m, nil
-}
-
-// Person History view - detailed view for a specific person
-func (m Model) viewPersonHistory() string {
-	title := TitleStyle.Render(fmt.Sprintf("  History: %s", m.selectedPerson))
-
-	debts := m.storage.GetAllDebtsForPerson(m.selectedPerson)
-
-	var content string
-	if len(debts) == 0 {
-		content = MutedStyle.Render(fmt.Sprintf("\n  No transactions with %s.\n", m.selectedPerson))
-	} else {
-		// Calculate totals
-		var totalLent, totalBorrowed, totalSettledLent, totalSettledBorrowed float64
-		var unsettledLent, unsettledBorrowed []models.DebtTransaction
-		var settledTransactions []models.DebtTransaction
-
-		for _, debt := range debts {
-			if debt.Type == models.Lent {
-				if debt.IsSettled {
-					// Only count if settlement amount > 0
-					if debt.SettlementAmount > 0 {
-						totalSettledLent += debt.SettlementAmount
-						settledTransactions = append(settledTransactions, debt)
-					}
-				} else {
-					totalLent += debt.Amount
-					unsettledLent = append(unsettledLent, debt)
-				}
-			} else {
-				if debt.IsSettled {
-					// Only count if settlement amount > 0
-					if debt.SettlementAmount > 0 {
-						totalSettledBorrowed += debt.SettlementAmount
-						settledTransactions = append(settledTransactions, debt)
-					}
-				} else {
-					totalBorrowed += debt.Amount
-					unsettledBorrowed = append(unsettledBorrowed, debt)
-				}
-			}
-		}
-
-		// Summary section
-		content = "\n"
-		content += SelectedMenuItemStyle.Render("  Summary") + "\n"
-		content += fmt.Sprintf("    Total Lent:       %s\n", AmountPositiveStyle.Render(FormatAmountPlain(totalLent, m.config.Currency)))
-		content += fmt.Sprintf("    Total Borrowed:   %s\n", AmountNegativeStyle.Render(FormatAmountPlain(totalBorrowed, m.config.Currency)))
-		content += fmt.Sprintf("    Settled (Lent):   %s\n", FormatAmountPlain(totalSettledLent, m.config.Currency))
-		content += fmt.Sprintf("    Settled (Borrow): %s\n", FormatAmountPlain(totalSettledBorrowed, m.config.Currency))
-		netBalance := (totalLent + totalSettledLent) - (totalBorrowed + totalSettledBorrowed)
-		content += fmt.Sprintf("    Net Balance:      %s\n\n", FormatAmount(netBalance, m.config.Currency))
-
-		// Unsettled Transactions
-		if len(unsettledLent) > 0 || len(unsettledBorrowed) > 0 {
-			content += SelectedMenuItemStyle.Render("  Active Transactions") + "\n"
-
-			if len(unsettledLent) > 0 {
-				content += AmountPositiveStyle.Render("    Lent:") + "\n"
-				for _, debt := range unsettledLent {
-					content += fmt.Sprintf("      • %s  %s  %s\n",
-						debt.Date.Format("2006-01-02"),
-						FormatAmountPlain(debt.Amount, m.config.Currency),
-						MutedStyle.Render(truncate(debt.Description, 30)),
-					)
-				}
-			}
-
-			if len(unsettledBorrowed) > 0 {
-				content += AmountNegativeStyle.Render("    Borrowed:") + "\n"
-				for _, debt := range unsettledBorrowed {
-					content += fmt.Sprintf("      • %s  %s  %s\n",
-						debt.Date.Format("2006-01-02"),
-						FormatAmountPlain(debt.Amount, m.config.Currency),
-						MutedStyle.Render(truncate(debt.Description, 30)),
-					)
-				}
-			}
-			content += "\n"
-		}
-
-		// Settled Transactions
-		if len(settledTransactions) > 0 {
-			content += SelectedMenuItemStyle.Render("  Settlement History") + "\n"
-
-			// Sort by settled date (most recent first)
-			for i := len(settledTransactions) - 1; i >= 0; i-- {
-				debt := settledTransactions[i]
-				if debt.SettledDate == nil {
-					continue
-				}
-
-				var typeLabel string
-				if debt.Type == models.Lent {
-					typeLabel = "Lent"
-				} else {
-					typeLabel = "Borrowed"
-				}
-
-				content += fmt.Sprintf("    ✓ %s  %s  %s\n",
-					debt.SettledDate.Format("2006-01-02"),
-					FormatAmountPlain(debt.SettlementAmount, m.config.Currency),
-					typeLabel,
-				)
-
-				if debt.Description != "" {
-					content += fmt.Sprintf("      Original: %s\n",
-						MutedStyle.Render(debt.Description),
-					)
-				}
-
-				if debt.SettlementNote != "" {
-					content += fmt.Sprintf("      Note: %s\n",
-						MutedStyle.Render(debt.SettlementNote),
-					)
-				}
-				content += "\n"
-			}
-		}
-	}
-
-	help := HelpStyle.Render("\n  Esc: Back to debts")
-
-	return BoxStyle.Render(title + content + help)
-}
-
-func (m *Model) updatePersonHistoryView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc", "q":
-		m.currentView = ViewDebts
-		m.cursor = 0
-		// Don't clear selectedPerson so we return to the same person in the list
-	}
-
-	return m, nil
-}
-
-// Select Transaction to Settle view
-func (m Model) viewSelectTransactionToSettle() string {
-	title := TitleStyle.Render("  Select Transaction to Settle")
-
-	debts := m.storage.GetUnsettledDebtsForPerson(m.selectedPerson)
-
-	var content string
-	if len(debts) == 0 {
-		content = MutedStyle.Render("\n  No unsettled debts for " + m.selectedPerson + ".\n")
-	} else {
-		content = "\n  " + SelectedMenuItemStyle.Render(m.selectedPerson) + "\n\n"
-
-		for i, debt := range debts {
-			cursor := "  "
-			if i == m.cursor {
-				cursor = "▸ "
-			}
-
-			var typeStyle lipgloss.Style
-			var typeLabel string
-			if debt.Type == models.Lent {
-				typeStyle = AmountPositiveStyle
-				typeLabel = "Lent"
-			} else {
-				typeStyle = AmountNegativeStyle
-				typeLabel = "Borrowed"
-			}
-
-			line := fmt.Sprintf("%s%s  %s  %s",
-				cursor,
-				debt.Date.Format("2006-01-02"),
-				typeStyle.Render(fmt.Sprintf("[%s]", typeLabel)),
-				FormatAmountPlain(debt.Amount, m.config.Currency),
-			)
-			content += line + "\n"
-
-			// Show description
-			desc := debt.Description
-			if desc == "" {
-				desc = "(no description)"
-			}
-			content += fmt.Sprintf("    %s\n", MutedStyle.Render(truncate(desc, 40)))
-			content += "\n"
-		}
-	}
-
-	help := HelpStyle.Render("\n  ↑/↓: Navigate • Enter: Select • Esc: Back")
-
-	return BoxStyle.Render(title + "\n" + content + help)
-}
-
-func (m *Model) updateSelectTransactionToSettleView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	debts := m.storage.GetUnsettledDebtsForPerson(m.selectedPerson)
-	maxCursor := len(debts) - 1
-	if maxCursor < 0 {
-		maxCursor = 0
-	}
-
-	switch msg.String() {
-	case "up", "k":
-		if m.cursor > 0 {
-			m.cursor--
-		}
-	case "down", "j":
-		if m.cursor < maxCursor {
-			m.cursor++
-		}
-	case "enter":
-		if len(debts) > 0 && m.cursor < len(debts) {
-			m.selectedID = debts[m.cursor].ID
-			m.currentView = ViewSettleDebt
-			m.initSettleDebtInputs()
-		}
 	case "esc":
-		m.currentView = ViewDebts
+		m.currentView = ViewMain
 		m.cursor = 0
-		m.selectedPerson = ""
 	}
 
 	return m, nil
@@ -1306,6 +862,11 @@ func (m *Model) updateAddDebtView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.messageType = "info"
 			}
 		}
+	case "esc":
+		m.currentView = ViewDebts
+		m.inputs = nil
+		m.cursor = 0
+		return m, nil
 	}
 
 	if len(m.inputs) > 0 && m.focusIndex < len(m.inputs) {
@@ -1316,30 +877,25 @@ func (m *Model) updateAddDebtView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// Settle Debt functions
+// Settle Debt functions - now settles a specific transaction with a note
 func (m *Model) initSettleDebtInputs() {
-	// Get the selected transaction
-	var selectedTx *models.DebtTransaction
+	// Find the selected transaction to get the remaining amount
+	var remainingAmount float64
 	for _, tx := range m.storage.GetDebtTransactions() {
-		if tx.ID == m.selectedID {
-			selectedTx = &tx
+		if tx.ID == m.selectedTxID {
+			remainingAmount = tx.Amount
 			break
 		}
 	}
 
-	var maxAmount float64
-	if selectedTx != nil {
-		maxAmount = selectedTx.Amount
-	}
-
 	m.inputs = make([]textinput.Model, 2)
+
 	m.inputs[0] = textinput.New()
-	m.inputs[0].Placeholder = fmt.Sprintf("Amount to settle (max: %.2f)", maxAmount)
-	m.inputs[0].SetValue(fmt.Sprintf("%.2f", maxAmount))
+	m.inputs[0].Placeholder = fmt.Sprintf("Amount (max: %.2f, leave empty for full)", remainingAmount)
 	m.inputs[0].Focus()
 
 	m.inputs[1] = textinput.New()
-	m.inputs[1].Placeholder = "Settlement note (e.g., Cash payment, Bank transfer, etc.)"
+	m.inputs[1].Placeholder = "Settlement note (e.g., Cash, Bank transfer, UPI)"
 
 	m.focusIndex = 0
 }
@@ -1347,146 +903,127 @@ func (m *Model) initSettleDebtInputs() {
 func (m Model) viewSettleDebt() string {
 	title := TitleStyle.Render("  Settle Transaction")
 
-	// Get the selected transaction details
+	// Find the selected transaction
 	var selectedTx *models.DebtTransaction
 	for _, tx := range m.storage.GetDebtTransactions() {
-		if tx.ID == m.selectedID {
+		if tx.ID == m.selectedTxID {
 			selectedTx = &tx
 			break
 		}
 	}
 
 	var content string
-	if selectedTx != nil {
-		var typeStyle lipgloss.Style
-		var typeLabel string
-		if selectedTx.Type == models.Lent {
-			typeStyle = AmountPositiveStyle
-			typeLabel = "Lent"
-		} else {
-			typeStyle = AmountNegativeStyle
-			typeLabel = "Borrowed"
+	if selectedTx == nil {
+		content = MutedStyle.Render("\n  Transaction not found.\n")
+	} else {
+		txType := AmountPositiveStyle.Render("LENT to")
+		if selectedTx.Type == models.Borrowed {
+			txType = AmountNegativeStyle.Render("BORROWED from")
+		}
+		desc := selectedTx.Description
+		if desc == "" {
+			desc = "(no description)"
 		}
 
-		content += fmt.Sprintf("  %s: %s\n", SelectedMenuItemStyle.Render("Person"), selectedTx.PersonName)
-		content += fmt.Sprintf("  %s: %s\n", SelectedMenuItemStyle.Render("Type"), typeStyle.Render(typeLabel))
-		content += fmt.Sprintf("  %s: %s\n", SelectedMenuItemStyle.Render("Original Amount"), FormatAmountPlain(selectedTx.Amount, m.config.Currency))
-		content += fmt.Sprintf("  %s: %s\n", SelectedMenuItemStyle.Render("Date"), selectedTx.Date.Format("2006-01-02"))
-		if selectedTx.Description != "" {
-			content += fmt.Sprintf("  %s: %s\n", SelectedMenuItemStyle.Render("Description"), selectedTx.Description)
+		content = fmt.Sprintf("\n  %s %s\n", txType, SelectedMenuItemStyle.Render(selectedTx.PersonName))
+		content += fmt.Sprintf("  Remaining: %s", FormatAmountPlain(selectedTx.Amount, m.config.Currency))
+		if selectedTx.OriginalAmount > selectedTx.Amount {
+			content += fmt.Sprintf(" (of %s original)", FormatAmountPlain(selectedTx.OriginalAmount, m.config.Currency))
 		}
 		content += "\n"
+		content += fmt.Sprintf("  Date: %s\n", selectedTx.Date.Format("2006-01-02"))
+		content += fmt.Sprintf("  Description: %s\n\n", MutedStyle.Render(desc))
+
+		if len(m.inputs) >= 2 {
+			labels := []string{"Amount to settle:", "Settlement Note:"}
+			hints := []string{
+				"Leave empty for full settlement",
+				"Optional: How was this settled? (Cash, UPI, Bank transfer)",
+			}
+			for i, input := range m.inputs {
+				if i == m.focusIndex {
+					content += "  " + SelectedMenuItemStyle.Render("▸ "+labels[i]) + "\n"
+					content += "  " + FocusedInputStyle.Render(input.View()) + "\n"
+					content += "  " + MutedStyle.Render(hints[i]) + "\n\n"
+				} else {
+					content += "  " + MenuItemStyle.Render("  "+labels[i]) + "\n"
+					content += "  " + InputStyle.Render(input.View()) + "\n"
+					content += "  " + MutedStyle.Render(hints[i]) + "\n\n"
+				}
+			}
+		}
 	}
 
-	if len(m.inputs) > 0 {
-		// Amount field
-		if m.focusIndex == 0 {
-			content += "  " + SelectedMenuItemStyle.Render("▸ Amount to settle:") + "\n"
-			content += "  " + FocusedInputStyle.Render(m.inputs[0].View()) + "\n"
-		} else {
-			content += "  " + MenuItemStyle.Render("  Amount to settle:") + "\n"
-			content += "  " + InputStyle.Render(m.inputs[0].View()) + "\n"
-		}
-		content += "  " + MutedStyle.Render("Enter amount (defaults to full amount)") + "\n\n"
+	help := HelpStyle.Render("  Tab: Next field • Enter: Confirm • Esc: Cancel")
 
-		// Settlement note field
-		if m.focusIndex == 1 {
-			content += "  " + SelectedMenuItemStyle.Render("▸ Settlement note:") + "\n"
-			content += "  " + FocusedInputStyle.Render(m.inputs[1].View()) + "\n"
-		} else {
-			content += "  " + MenuItemStyle.Render("  Settlement note:") + "\n"
-			content += "  " + InputStyle.Render(m.inputs[1].View()) + "\n"
-		}
-		content += "  " + MutedStyle.Render("Why/How it was settled (e.g., Cash, Bank transfer, UPI)") + "\n"
-	}
-
-	help := HelpStyle.Render("\n  Tab: Next field • Enter: Confirm • Esc: Cancel")
-
-	return BoxStyle.Render(title + "\n\n" + content + help)
+	return BoxStyle.Render(title + content + help)
 }
 
 func (m *Model) updateSettleDebtView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "tab", "down":
-		m.inputs[m.focusIndex].Blur()
-		m.focusIndex = (m.focusIndex + 1) % len(m.inputs)
-		m.inputs[m.focusIndex].Focus()
-		return m, nil
+		if len(m.inputs) > 0 {
+			m.inputs[m.focusIndex].Blur()
+			m.focusIndex = (m.focusIndex + 1) % len(m.inputs)
+			m.inputs[m.focusIndex].Focus()
+		}
 	case "shift+tab", "up":
-		m.inputs[m.focusIndex].Blur()
-		m.focusIndex--
-		if m.focusIndex < 0 {
-			m.focusIndex = len(m.inputs) - 1
-		}
-		m.inputs[m.focusIndex].Focus()
-		return m, nil
-	case "enter":
-		// Get the selected transaction to find max amount
-		var selectedTx *models.DebtTransaction
-		for _, tx := range m.storage.GetDebtTransactions() {
-			if tx.ID == m.selectedID {
-				selectedTx = &tx
-				break
+		if len(m.inputs) > 0 {
+			m.inputs[m.focusIndex].Blur()
+			m.focusIndex--
+			if m.focusIndex < 0 {
+				m.focusIndex = len(m.inputs) - 1
 			}
+			m.inputs[m.focusIndex].Focus()
 		}
-
-		if selectedTx == nil {
-			m.message = "Transaction not found"
-			m.messageType = "error"
-			return m, nil
-		}
-
-		maxAmount := selectedTx.Amount
-		var amountToSettle float64
-
-		if m.inputs[0].Value() == "" {
-			amountToSettle = maxAmount
-		} else {
+	case "enter":
+		// Parse amount
+		var amount float64
+		if len(m.inputs) > 0 && m.inputs[0].Value() != "" {
 			var err error
-			amountToSettle, err = strconv.ParseFloat(m.inputs[0].Value(), 64)
+			amount, err = strconv.ParseFloat(m.inputs[0].Value(), 64)
 			if err != nil {
 				m.message = "Invalid amount"
 				m.messageType = "error"
 				return m, nil
 			}
-			if amountToSettle <= 0 {
+			if amount <= 0 {
 				m.message = "Amount must be positive"
-				m.messageType = "error"
-				return m, nil
-			}
-			if amountToSettle > maxAmount {
-				m.message = fmt.Sprintf("Amount exceeds transaction amount (max: %.2f)", maxAmount)
 				m.messageType = "error"
 				return m, nil
 			}
 		}
 
-		settlementNote := m.inputs[1].Value()
-		err := m.storage.SettleTransaction(m.selectedID, amountToSettle, settlementNote)
+		note := ""
+		if len(m.inputs) > 1 {
+			note = m.inputs[1].Value()
+		}
+
+		err := m.storage.SettleTransactionWithNote(m.selectedTxID, amount, note)
 		if err != nil {
 			m.message = "Error settling: " + err.Error()
 			m.messageType = "error"
 			return m, nil
 		}
 
-		m.message = fmt.Sprintf("Settled %s %.2f!", m.config.Currency, amountToSettle)
+		if amount > 0 {
+			m.message = fmt.Sprintf("Settled %s %.2f with %s!", m.config.Currency, amount, m.selectedPerson)
+		} else {
+			m.message = fmt.Sprintf("Fully settled with %s!", m.selectedPerson)
+		}
 		m.messageType = "success"
 		m.currentView = ViewDebts
 		m.inputs = nil
-		m.selectedID = ""
 		m.selectedPerson = ""
+		m.selectedTxID = ""
 		m.cursor = 0
 		return m, nil
-	case "+":
-		if m.focusIndex == 0 && len(m.inputs) > 0 {
-			currentValue := m.inputs[0].Value()
-			calculatedValue, success := tryCalculateAmount(currentValue)
-			if success {
-				m.inputs[0].SetValue(calculatedValue)
-				m.message = "Calculated: " + calculatedValue
-				m.messageType = "info"
-			}
-		}
+	case "esc":
+		m.currentView = ViewSelectTransaction
+		m.inputs = nil
+		m.selectedTxID = ""
+		m.cursor = 0
+		return m, nil
 	}
 
 	if len(m.inputs) > 0 && m.focusIndex < len(m.inputs) {
@@ -1494,6 +1031,229 @@ func (m *Model) updateSettleDebtView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.inputs[m.focusIndex], cmd = m.inputs[m.focusIndex].Update(msg)
 		return m, cmd
 	}
+	return m, nil
+}
+
+// Select Transaction view - shows unsettled transactions for a person to pick one
+func (m Model) viewSelectTransaction() string {
+	title := TitleStyle.Render("  Select Transaction to Settle")
+
+	transactions := m.storage.GetUnsettledDebtsForPerson(m.selectedPerson)
+
+	var content string
+	if len(transactions) == 0 {
+		content = MutedStyle.Render(fmt.Sprintf("\n  No unsettled transactions for %s.\n", m.selectedPerson))
+	} else {
+		content = fmt.Sprintf("\n  Transactions with %s:\n\n", SelectedMenuItemStyle.Render(m.selectedPerson))
+		for i, tx := range transactions {
+			cursor := "  "
+			if i == m.cursor {
+				cursor = "▸ "
+			}
+			txType := AmountPositiveStyle.Render("LENT")
+			if tx.Type == models.Borrowed {
+				txType = AmountNegativeStyle.Render("BORROWED")
+			}
+			desc := tx.Description
+			if desc == "" {
+				desc = "(no description)"
+			}
+			line := fmt.Sprintf("%s%s  %s  %s  %s",
+				cursor,
+				tx.Date.Format("2006-01-02"),
+				txType,
+				FormatAmountPlain(tx.Amount, m.config.Currency),
+				MutedStyle.Render(truncate(desc, 30)),
+			)
+			content += line + "\n"
+		}
+	}
+
+	help := HelpStyle.Render("\n  Enter: Select • h: Settlement history • Esc: Back")
+
+	return BoxStyle.Render(title + content + help)
+}
+
+func (m *Model) updateSelectTransactionView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	transactions := m.storage.GetUnsettledDebtsForPerson(m.selectedPerson)
+	maxCursor := len(transactions) - 1
+	if maxCursor < 0 {
+		maxCursor = 0
+	}
+
+	switch msg.String() {
+	case "up", "k":
+		if m.cursor > 0 {
+			m.cursor--
+		}
+	case "down", "j":
+		if m.cursor < maxCursor {
+			m.cursor++
+		}
+	case "enter":
+		if len(transactions) > 0 && m.cursor < len(transactions) {
+			m.selectedTxID = transactions[m.cursor].ID
+			m.currentView = ViewSettleDebt
+			m.initSettleDebtInputs()
+		}
+	case "h":
+		// Show settlement history for this person
+		m.currentView = ViewPersonHistory
+		m.cursor = 0
+	case "esc":
+		m.currentView = ViewDebts
+		m.selectedPerson = ""
+		m.cursor = 0
+	}
+
+	return m, nil
+}
+
+// Person History view - shows payment/settlement history for a specific person
+func (m Model) viewPersonHistory() string {
+	title := TitleStyle.Render("  Payment History")
+
+	settlements := m.storage.GetSettlementsForPerson(m.selectedPerson)
+
+	var content string
+	content = fmt.Sprintf("\n  Payments with %s:\n\n", SelectedMenuItemStyle.Render(m.selectedPerson))
+
+	if len(settlements) == 0 {
+		content += MutedStyle.Render("  No payments recorded with this person yet.\n")
+	} else {
+		// Show most recent first
+		for i := len(settlements) - 1; i >= 0; i-- {
+			st := settlements[i]
+			cursor := "  "
+			if len(settlements)-1-i == m.cursor {
+				cursor = "▸ "
+			}
+			// For settlements: if original was LENT, settlement means "received payment"
+			// if original was BORROWED, settlement means "paid back"
+			action := AmountPositiveStyle.Render("RECEIVED")
+			if st.Type == models.Borrowed {
+				action = AmountNegativeStyle.Render("PAID")
+			}
+			note := st.Note
+			if note == "" {
+				note = "(no note)"
+			}
+			line := fmt.Sprintf("%s%s  %s  %s  %s",
+				cursor,
+				st.Date.Format("2006-01-02"),
+				action,
+				FormatAmountPlain(st.Amount, m.config.Currency),
+				MutedStyle.Render(truncate(note, 25)),
+			)
+			content += line + "\n"
+		}
+	}
+
+	help := HelpStyle.Render("\n  Esc: Back to transactions")
+
+	return BoxStyle.Render(title + content + help)
+}
+
+func (m *Model) updatePersonHistoryView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	settlements := m.storage.GetSettlementsForPerson(m.selectedPerson)
+	maxCursor := len(settlements) - 1
+	if maxCursor < 0 {
+		maxCursor = 0
+	}
+
+	switch msg.String() {
+	case "up", "k":
+		if m.cursor > 0 {
+			m.cursor--
+		}
+	case "down", "j":
+		if m.cursor < maxCursor {
+			m.cursor++
+		}
+	case "esc":
+		m.currentView = ViewDebts
+		m.cursor = 0
+	}
+
+	return m, nil
+}
+
+// Settlement History view - shows all payment records
+func (m Model) viewSettlementHistory() string {
+	title := TitleStyle.Render("  All Payments History")
+
+	settlements := m.storage.GetAllSettlements()
+
+	var content string
+	if len(settlements) == 0 {
+		content = MutedStyle.Render("\n  No payments recorded yet.\n")
+	} else {
+		content = "\n"
+		// Show most recent first, limit to last 15
+		start := 0
+		if len(settlements) > 15 {
+			start = len(settlements) - 15
+		}
+		for i := len(settlements) - 1; i >= start; i-- {
+			st := settlements[i]
+			cursor := "  "
+			if len(settlements)-1-i == m.cursor {
+				cursor = "▸ "
+			}
+			action := AmountPositiveStyle.Render("RECEIVED")
+			if st.Type == models.Borrowed {
+				action = AmountNegativeStyle.Render("PAID")
+			}
+			note := st.Note
+			if note == "" {
+				note = "(no note)"
+			}
+			line := fmt.Sprintf("%s%s  %s  %s  %s  %s",
+				cursor,
+				st.Date.Format("2006-01-02"),
+				TableCellStyle.Width(10).Render(st.PersonName),
+				action,
+				FormatAmountPlain(st.Amount, m.config.Currency),
+				MutedStyle.Render(truncate(note, 20)),
+			)
+			content += line + "\n"
+		}
+	}
+
+	help := HelpStyle.Render("\n  Esc: Back")
+
+	return BoxStyle.Render(title + content + help)
+}
+
+func (m *Model) updateSettlementHistoryView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	settlements := m.storage.GetAllSettlements()
+	maxCursor := len(settlements) - 1
+	if maxCursor < 0 {
+		maxCursor = 0
+	}
+	// Limit to visible items
+	visibleCount := len(settlements)
+	if visibleCount > 15 {
+		visibleCount = 15
+	}
+	if maxCursor >= visibleCount {
+		maxCursor = visibleCount - 1
+	}
+
+	switch msg.String() {
+	case "up", "k":
+		if m.cursor > 0 {
+			m.cursor--
+		}
+	case "down", "j":
+		if m.cursor < maxCursor {
+			m.cursor++
+		}
+	case "esc":
+		m.currentView = ViewDebts
+		m.cursor = 0
+	}
+
 	return m, nil
 }
 
@@ -1578,6 +1338,9 @@ func (m *Model) updateNetWorthView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.inputs[0].Focus()
 			m.focusIndex = 0
 		}
+	case "esc":
+		m.currentView = ViewMain
+		m.cursor = 0
 	}
 
 	return m, nil
@@ -1765,6 +1528,11 @@ func (m *Model) updateAddInvestmentView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.messageType = "info"
 			}
 		}
+	case "esc":
+		m.currentView = ViewNetWorth
+		m.inputs = nil
+		m.cursor = 0
+		return m, nil
 	}
 
 	if len(m.inputs) > 0 && m.focusIndex < len(m.inputs) {
@@ -1839,6 +1607,12 @@ func (m *Model) updateUpdateInvestmentView(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 				m.messageType = "info"
 			}
 		}
+	case "esc":
+		m.currentView = ViewNetWorth
+		m.inputs = nil
+		m.selectedID = ""
+		m.cursor = 0
+		return m, nil
 	}
 
 	if len(m.inputs) > 0 && m.focusIndex < len(m.inputs) {
@@ -1858,6 +1632,11 @@ func (m *Model) updateConfirmDeleteView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.message = "Investment deleted"
 			m.messageType = "success"
 		}
+		m.currentView = ViewNetWorth
+		m.inputs = nil
+		m.cursor = 0
+		return m, nil
+	case "esc":
 		m.currentView = ViewNetWorth
 		m.inputs = nil
 		m.cursor = 0
@@ -1939,6 +1718,9 @@ func (m *Model) updateSavingsView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.cursor--
 			}
 		}
+	case "esc":
+		m.currentView = ViewMain
+		m.cursor = 0
 	}
 
 	return m, nil
@@ -2045,6 +1827,11 @@ func (m *Model) updateAddSavingsTargetView(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 				m.messageType = "info"
 			}
 		}
+	case "esc":
+		m.currentView = ViewSavings
+		m.inputs = nil
+		m.cursor = 0
+		return m, nil
 	}
 
 	if len(m.inputs) > 0 && m.focusIndex < len(m.inputs) {

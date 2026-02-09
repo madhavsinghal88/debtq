@@ -2,7 +2,6 @@ package storage
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -31,6 +30,7 @@ func New(cfg *config.Config) (*Storage, error) {
 			s.data = &models.Data{
 				Expenses:             []models.Expense{},
 				DebtTransactions:     []models.DebtTransaction{},
+				Settlements:          []models.Settlement{},
 				Investments:          []models.Investment{},
 				SavingsTargets:       []models.SavingsTarget{},
 				SavingsContributions: []models.SavingsContribution{},
@@ -126,15 +126,16 @@ func (s *Storage) DeleteExpense(id string) error {
 // AddDebtTransaction adds a new debt transaction
 func (s *Storage) AddDebtTransaction(txType models.TransactionType, personName string, amount float64, description string, date time.Time, dueDate *time.Time) (*models.DebtTransaction, error) {
 	tx := models.DebtTransaction{
-		ID:          GenerateID(),
-		Type:        txType,
-		PersonName:  personName,
-		Amount:      amount,
-		Description: description,
-		Date:        date,
-		DueDate:     dueDate,
-		IsSettled:   false,
-		CreatedAt:   time.Now(),
+		ID:             GenerateID(),
+		Type:           txType,
+		PersonName:     personName,
+		Amount:         amount,
+		OriginalAmount: amount,
+		Description:    description,
+		Date:           date,
+		DueDate:        dueDate,
+		IsSettled:      false,
+		CreatedAt:      time.Now(),
 	}
 	s.data.DebtTransactions = append(s.data.DebtTransactions, tx)
 	return &tx, s.Save()
@@ -188,8 +189,7 @@ func (s *Storage) PartialSettleDebt(personName string, amount float64, settleTyp
 
 // SettleAmountForPerson settles a specific amount for a person (handles both lent and borrowed)
 // It calculates net balance and settles appropriately
-// settlementNote is an optional description of why/how the settlement occurred
-func (s *Storage) SettleAmountForPerson(personName string, amount float64, settlementNote string) (float64, error) {
+func (s *Storage) SettleAmountForPerson(personName string, amount float64) (float64, error) {
 	// Calculate current balances
 	var totalLent, totalBorrowed float64
 	for _, tx := range s.data.DebtTransactions {
@@ -217,8 +217,6 @@ func (s *Storage) SettleAmountForPerson(personName string, amount float64, settl
 				if tx.Amount <= remainingToSettle {
 					s.data.DebtTransactions[i].IsSettled = true
 					s.data.DebtTransactions[i].SettledDate = &now
-					s.data.DebtTransactions[i].SettlementAmount = tx.Amount
-					s.data.DebtTransactions[i].SettlementNote = settlementNote
 					settled += tx.Amount
 					remainingToSettle -= tx.Amount
 				} else {
@@ -238,8 +236,6 @@ func (s *Storage) SettleAmountForPerson(personName string, amount float64, settl
 				if tx.Amount <= offsetSettle {
 					s.data.DebtTransactions[i].IsSettled = true
 					s.data.DebtTransactions[i].SettledDate = &now
-					s.data.DebtTransactions[i].SettlementAmount = tx.Amount
-					s.data.DebtTransactions[i].SettlementNote = settlementNote
 					offsetSettle -= tx.Amount
 				} else {
 					s.data.DebtTransactions[i].Amount -= offsetSettle
@@ -258,8 +254,6 @@ func (s *Storage) SettleAmountForPerson(personName string, amount float64, settl
 				if tx.Amount <= remainingToSettle {
 					s.data.DebtTransactions[i].IsSettled = true
 					s.data.DebtTransactions[i].SettledDate = &now
-					s.data.DebtTransactions[i].SettlementAmount = tx.Amount
-					s.data.DebtTransactions[i].SettlementNote = settlementNote
 					settled += tx.Amount
 					remainingToSettle -= tx.Amount
 				} else {
@@ -279,8 +273,6 @@ func (s *Storage) SettleAmountForPerson(personName string, amount float64, settl
 				if tx.Amount <= offsetSettle {
 					s.data.DebtTransactions[i].IsSettled = true
 					s.data.DebtTransactions[i].SettledDate = &now
-					s.data.DebtTransactions[i].SettlementAmount = tx.Amount
-					s.data.DebtTransactions[i].SettlementNote = settlementNote
 					offsetSettle -= tx.Amount
 				} else {
 					s.data.DebtTransactions[i].Amount -= offsetSettle
@@ -295,8 +287,6 @@ func (s *Storage) SettleAmountForPerson(personName string, amount float64, settl
 			if tx.PersonName == personName && !tx.IsSettled {
 				s.data.DebtTransactions[i].IsSettled = true
 				s.data.DebtTransactions[i].SettledDate = &now
-				s.data.DebtTransactions[i].SettlementAmount = tx.Amount
-				s.data.DebtTransactions[i].SettlementNote = settlementNote
 				settled += tx.Amount
 				hasUnsettled = true
 			}
@@ -343,7 +333,7 @@ func (s *Storage) GetUnsettledDebts() []models.DebtTransaction {
 	return unsettled
 }
 
-// GetSettledDebts returns settled debt transactions
+// GetSettledDebts returns all settled debt transactions
 func (s *Storage) GetSettledDebts() []models.DebtTransaction {
 	var settled []models.DebtTransaction
 	for _, tx := range s.data.DebtTransactions {
@@ -356,68 +346,80 @@ func (s *Storage) GetSettledDebts() []models.DebtTransaction {
 
 // GetUnsettledDebtsForPerson returns unsettled debts for a specific person
 func (s *Storage) GetUnsettledDebtsForPerson(personName string) []models.DebtTransaction {
-	var debts []models.DebtTransaction
+	var unsettled []models.DebtTransaction
 	for _, tx := range s.data.DebtTransactions {
 		if tx.PersonName == personName && !tx.IsSettled {
-			debts = append(debts, tx)
+			unsettled = append(unsettled, tx)
 		}
 	}
-	return debts
+	return unsettled
 }
 
-// GetAllDebtsForPerson returns all debts (settled and unsettled) for a specific person
-func (s *Storage) GetAllDebtsForPerson(personName string) []models.DebtTransaction {
-	var debts []models.DebtTransaction
-	for _, tx := range s.data.DebtTransactions {
-		if tx.PersonName == personName {
-			debts = append(debts, tx)
-		}
-	}
-	return debts
-}
-
-// SettleTransaction settles a specific transaction by ID with a specific amount
-// If amount is less than the full transaction amount, the transaction is split:
-// - Original transaction remains with reduced amount
-// - New settled transaction is created for the settled portion
-func (s *Storage) SettleTransaction(id string, amount float64, note string) error {
+// SettleTransactionWithNote settles a specific transaction (full or partial) with a note
+// If amount is 0 or >= remaining amount, it fully settles. Otherwise partial settlement.
+func (s *Storage) SettleTransactionWithNote(id string, amount float64, note string) error {
 	for i, tx := range s.data.DebtTransactions {
 		if tx.ID == id {
 			now := time.Now()
 
-			if amount >= tx.Amount {
-				// Full settlement - mark original as settled
+			// Determine settlement amount
+			settleAmount := amount
+			if settleAmount <= 0 || settleAmount >= tx.Amount {
+				// Full settlement
+				settleAmount = tx.Amount
+				s.data.DebtTransactions[i].Amount = 0
 				s.data.DebtTransactions[i].IsSettled = true
 				s.data.DebtTransactions[i].SettledDate = &now
-				s.data.DebtTransactions[i].SettlementAmount = tx.Amount
 				s.data.DebtTransactions[i].SettlementNote = note
 			} else {
-				// Partial settlement - split the transaction
-				// 1. Reduce original transaction amount
-				s.data.DebtTransactions[i].Amount -= amount
-
-				// 2. Create a new settled transaction for the settled portion
-				settledTx := models.DebtTransaction{
-					ID:               GenerateID(),
-					Type:             tx.Type,
-					PersonName:       tx.PersonName,
-					Amount:           amount,
-					Description:      tx.Description + " (partial settlement)",
-					Date:             tx.Date,
-					DueDate:          tx.DueDate,
-					IsSettled:        true,
-					SettledDate:      &now,
-					SettlementAmount: amount,
-					SettlementNote:   note,
-					CreatedAt:        now,
-				}
-				s.data.DebtTransactions = append(s.data.DebtTransactions, settledTx)
+				// Partial settlement - reduce remaining amount
+				s.data.DebtTransactions[i].Amount -= settleAmount
 			}
+
+			// Create settlement record
+			settlement := models.Settlement{
+				ID:            GenerateID(),
+				TransactionID: tx.ID,
+				PersonName:    tx.PersonName,
+				Type:          tx.Type,
+				Amount:        settleAmount,
+				Note:          note,
+				Date:          now,
+				CreatedAt:     now,
+			}
+			s.data.Settlements = append(s.data.Settlements, settlement)
 
 			return s.Save()
 		}
 	}
-	return fmt.Errorf("transaction not found")
+	return nil
+}
+
+// GetSettlementsForPerson returns all settlements for a specific person
+func (s *Storage) GetSettlementsForPerson(personName string) []models.Settlement {
+	var settlements []models.Settlement
+	for _, st := range s.data.Settlements {
+		if st.PersonName == personName {
+			settlements = append(settlements, st)
+		}
+	}
+	return settlements
+}
+
+// GetAllSettlements returns all settlements
+func (s *Storage) GetAllSettlements() []models.Settlement {
+	return s.data.Settlements
+}
+
+// GetSettledDebtsForPerson returns settled debts for a specific person
+func (s *Storage) GetSettledDebtsForPerson(personName string) []models.DebtTransaction {
+	var settled []models.DebtTransaction
+	for _, tx := range s.data.DebtTransactions {
+		if tx.PersonName == personName && tx.IsSettled {
+			settled = append(settled, tx)
+		}
+	}
+	return settled
 }
 
 // ==================== Investment Operations ====================
