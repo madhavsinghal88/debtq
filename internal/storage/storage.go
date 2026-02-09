@@ -365,6 +365,17 @@ func (s *Storage) GetUnsettledDebtsForPerson(personName string) []models.DebtTra
 	return debts
 }
 
+// GetAllDebtsForPerson returns all debts (settled and unsettled) for a specific person
+func (s *Storage) GetAllDebtsForPerson(personName string) []models.DebtTransaction {
+	var debts []models.DebtTransaction
+	for _, tx := range s.data.DebtTransactions {
+		if tx.PersonName == personName {
+			debts = append(debts, tx)
+		}
+	}
+	return debts
+}
+
 // SettleTransaction settles a specific transaction by ID with a specific amount
 // If amount is less than the full transaction amount, the transaction is split:
 // - Original transaction remains with reduced amount

@@ -16,7 +16,11 @@ A terminal-based personal finance tracker built with Go and [Bubble Tea](https:/
 - Track money lent to others
 - **Smart grouping**: Combines all transactions with the same person
 - **Net balance calculation**: Shows who owes whom and how much
+- **Transaction selection**: Choose specific transactions to settle
 - **Partial settlements**: Settle specific amounts instead of full transactions
+- **Settlement notes**: Add descriptions to remember why/how you settled (e.g., "Cash payment", "UPI transfer")
+- **Settlement history**: View all settled transactions with notes and amounts
+- **Person history**: Detailed view of all transactions with a specific person
 - **Custom transaction dates**: Enter the actual date when money was borrowed/lent
 
 ### My Net Worth
@@ -125,7 +129,9 @@ debtq
 | Key | Action |
 |-----|--------|
 | `a` | Add new debt transaction |
-| `s` | Settle amount for selected person |
+| `s` | Settle amount for selected person (select transaction first) |
+| `h` | View settlement history (all settled transactions) |
+| `i` | View person history (detailed view for selected person) |
 
 ### Net Worth View
 | Key | Action |
@@ -148,6 +154,35 @@ debtq
 | `Shift+Tab` / `↑` | Previous field |
 | `Enter` | Save |
 | `Esc` | Cancel |
+
+## Settlement Workflow
+
+When settling debts, you now have more control:
+
+1. **Select Person** - In Debts view, select a person and press `s`
+2. **Choose Transaction** - Select the specific transaction you want to settle
+3. **Enter Amount** - Enter the settlement amount (defaults to full amount)
+4. **Add Note** - Add a settlement note (e.g., "Paid via UPI", "Cash payment")
+5. **Confirm** - Press Enter to complete
+
+**Partial Settlements**: If you settle less than the full amount, the transaction is automatically split:
+- Original transaction keeps the remaining amount (still active)
+- New settled transaction is created for the settled portion
+
+## Viewing History
+
+### Settlement History (`h`)
+Shows all settled transactions across all people:
+- Settlement date
+- Original and settled amounts
+- Settlement notes
+- Transaction descriptions
+
+### Person History (`i`)
+Detailed view for a selected person showing:
+- **Summary**: Total lent/borrowed, settled amounts, net balance
+- **Active Transactions**: All unsettled debts with descriptions
+- **Settlement History**: Chronological list of all settlements with notes
 
 ## Configuration
 
@@ -172,10 +207,33 @@ Configuration is stored at `~/.config/debtq/config.json`:
 
 All data is stored locally in JSON format at `~/.config/debtq/data.json`. The data includes:
 - Expenses
-- Debt transactions
+- Debt transactions (with settlement tracking)
 - Investments
 - Savings targets
 - Savings contributions
+
+### Debt Transaction Format
+
+```json
+{
+  "id": "abc123",
+  "type": "lent",
+  "person_name": "John",
+  "amount": 1000.00,
+  "description": "Lunch money",
+  "date": "2026-01-15T00:00:00Z",
+  "is_settled": true,
+  "settled_date": "2026-02-09T10:30:00Z",
+  "settlement_amount": 500.00,
+  "settlement_note": "Paid via UPI"
+}
+```
+
+**Settlement Fields:**
+- `is_settled`: Whether the transaction is settled
+- `settled_date`: When it was settled
+- `settlement_amount`: Actual amount settled (may differ from original for partial settlements)
+- `settlement_note`: Description of why/how it was settled
 
 ## Make Commands
 
