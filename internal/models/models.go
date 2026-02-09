@@ -36,16 +36,18 @@ const (
 
 // DebtTransaction represents money borrowed or lent
 type DebtTransaction struct {
-	ID          string          `json:"id"`
-	Type        TransactionType `json:"type"`
-	PersonName  string          `json:"person_name"`
-	Amount      float64         `json:"amount"`
-	Description string          `json:"description"`
-	Date        time.Time       `json:"date"`
-	DueDate     *time.Time      `json:"due_date,omitempty"`
-	IsSettled   bool            `json:"is_settled"`
-	SettledDate *time.Time      `json:"settled_date,omitempty"`
-	CreatedAt   time.Time       `json:"created_at"`
+	ID               string          `json:"id"`
+	Type             TransactionType `json:"type"`
+	PersonName       string          `json:"person_name"`
+	Amount           float64         `json:"amount"`
+	Description      string          `json:"description"`
+	Date             time.Time       `json:"date"`
+	DueDate          *time.Time      `json:"due_date,omitempty"`
+	IsSettled        bool            `json:"is_settled"`
+	SettledDate      *time.Time      `json:"settled_date,omitempty"`
+	SettlementAmount float64         `json:"settlement_amount,omitempty"` // Amount actually settled
+	SettlementNote   string          `json:"settlement_note,omitempty"`   // Why it was settled
+	CreatedAt        time.Time       `json:"created_at"`
 }
 
 // InvestmentType represents types of investments
