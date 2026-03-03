@@ -85,12 +85,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		// Clear message on any key press
-		if m.message != "" && msg.String() != "enter" {
+		keyStr := msg.String()
+		// Clear message on key press (but not when auto-calc just ran)
+		if m.message != "" && m.messageType != "calc" && keyStr != "enter" {
 			m.message = ""
 		}
 
-		switch msg.String() {
+		switch keyStr {
 		case "ctrl+c", "q":
 			if m.currentView == ViewMain {
 				return m, tea.Quit
@@ -423,7 +424,7 @@ func (m Model) viewAddExpense() string {
 		}
 	}
 
-	help := HelpStyle.Render("Tab: Next field • Enter: Save • Esc: Cancel")
+	help := HelpStyle.Render("+: Calculate • Tab: Next field • Enter: Save • Esc: Cancel")
 
 	return BoxStyle.Render(title + "\n" + content + help)
 }
@@ -505,6 +506,11 @@ func (m *Model) updateAddExpenseView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if len(m.inputs) > 0 && m.focusIndex < len(m.inputs) {
 		var cmd tea.Cmd
 		m.inputs[m.focusIndex], cmd = m.inputs[m.focusIndex].Update(msg)
+
+		// Auto-calculate in amount field (index 0) when trailing operator is typed
+		if m.focusIndex == 0 {
+			m.autoCalculateIfNeeded(0)
+		}
 		return m, cmd
 	}
 	return m, nil
@@ -783,7 +789,7 @@ func (m Model) viewAddDebt() string {
 		}
 	}
 
-	help := HelpStyle.Render("Tab: Next field • Enter: Save • Esc: Cancel")
+	help := HelpStyle.Render("+: Calculate • Tab: Next field • Enter: Save • Esc: Cancel")
 
 	return BoxStyle.Render(title + "\n" + content + help)
 }
@@ -872,6 +878,11 @@ func (m *Model) updateAddDebtView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if len(m.inputs) > 0 && m.focusIndex < len(m.inputs) {
 		var cmd tea.Cmd
 		m.inputs[m.focusIndex], cmd = m.inputs[m.focusIndex].Update(msg)
+
+		// Auto-calculate in amount field (index 2) when trailing operator is typed
+		if m.focusIndex == 2 {
+			m.autoCalculateIfNeeded(2)
+		}
 		return m, cmd
 	}
 	return m, nil
@@ -954,29 +965,43 @@ func (m Model) viewSettleDebt() string {
 		}
 	}
 
-	help := HelpStyle.Render("  Tab: Next field • Enter: Confirm • Esc: Cancel")
+	help := HelpStyle.Render("  +: Calculate • Tab: Next field • Enter: Confirm • Esc: Cancel")
 
 	return BoxStyle.Render(title + content + help)
 }
 
 func (m *Model) updateSettleDebtView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
+	keyStr := msg.String()
+
+	switch keyStr {
 	case "tab", "down":
-		if len(m.inputs) > 0 {
-			m.inputs[m.focusIndex].Blur()
-			m.focusIndex = (m.focusIndex + 1) % len(m.inputs)
-			m.inputs[m.focusIndex].Focus()
-		}
+		m.inputs[m.focusIndex].Blur()
+		m.focusIndex = (m.focusIndex + 1) % len(m.inputs)
+		m.inputs[m.focusIndex].Focus()
 	case "shift+tab", "up":
-		if len(m.inputs) > 0 {
-			m.inputs[m.focusIndex].Blur()
-			m.focusIndex--
-			if m.focusIndex < 0 {
-				m.focusIndex = len(m.inputs) - 1
-			}
-			m.inputs[m.focusIndex].Focus()
+		m.inputs[m.focusIndex].Blur()
+		m.focusIndex--
+		if m.focusIndex < 0 {
+			m.focusIndex = len(m.inputs) - 1
 		}
+		m.inputs[m.focusIndex].Focus()
 	case "enter":
+		// Auto-calculate if input contains math operators
+		if len(m.inputs) > 0 && m.inputs[0].Value() != "" {
+			inputVal := m.inputs[0].Value()
+			if strings.ContainsAny(inputVal, "+-*/") {
+				calculatedValue, success := tryCalculateAmount(inputVal)
+				if success {
+					m.inputs[0].SetValue(calculatedValue)
+					m.message = "Calculated: " + calculatedValue
+					m.messageType = "info"
+				} else {
+					m.message = "Calc failed for: " + inputVal
+					m.messageType = "error"
+					return m, nil
+				}
+			}
+		}
 		// Parse amount
 		var amount float64
 		if len(m.inputs) > 0 && m.inputs[0].Value() != "" {
@@ -1027,8 +1052,19 @@ func (m *Model) updateSettleDebtView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if len(m.inputs) > 0 && m.focusIndex < len(m.inputs) {
+		// Get value before update
+		oldValue := m.inputs[m.focusIndex].Value()
+
 		var cmd tea.Cmd
 		m.inputs[m.focusIndex], cmd = m.inputs[m.focusIndex].Update(msg)
+
+		// Get value after update
+		newValue := m.inputs[m.focusIndex].Value()
+
+		// Auto-calculate in amount field (index 0) when trailing operator is typed
+		if m.focusIndex == 0 && newValue != oldValue {
+			m.autoCalculateIfNeeded(0)
+		}
 		return m, cmd
 	}
 	return m, nil
@@ -1404,7 +1440,7 @@ func (m Model) viewAddInvestment() string {
 		}
 	}
 
-	help := HelpStyle.Render("Tab: Next field • Enter: Save • Esc: Cancel")
+	help := HelpStyle.Render("+: Calculate • Tab: Next field • Enter: Save • Esc: Cancel")
 
 	return BoxStyle.Render(title + "\n" + content + help)
 }
@@ -1538,6 +1574,11 @@ func (m *Model) updateAddInvestmentView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if len(m.inputs) > 0 && m.focusIndex < len(m.inputs) {
 		var cmd tea.Cmd
 		m.inputs[m.focusIndex], cmd = m.inputs[m.focusIndex].Update(msg)
+
+		// Auto-calculate in amount fields (index 2: Invested, index 3: Current Value)
+		if m.focusIndex == 2 || m.focusIndex == 3 {
+			m.autoCalculateIfNeeded(m.focusIndex)
+		}
 		return m, cmd
 	}
 	return m, nil
@@ -1618,6 +1659,11 @@ func (m *Model) updateUpdateInvestmentView(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 	if len(m.inputs) > 0 && m.focusIndex < len(m.inputs) {
 		var cmd tea.Cmd
 		m.inputs[m.focusIndex], cmd = m.inputs[m.focusIndex].Update(msg)
+
+		// Auto-calculate in amount fields (index 0: Invested, index 1: Current Value)
+		if m.focusIndex == 0 || m.focusIndex == 1 {
+			m.autoCalculateIfNeeded(m.focusIndex)
+		}
 		return m, cmd
 	}
 	return m, nil
@@ -1762,7 +1808,7 @@ func (m Model) viewAddSavingsTarget() string {
 		}
 	}
 
-	help := HelpStyle.Render("Tab: Next field • Enter: Save • Esc: Cancel")
+	help := HelpStyle.Render("+: Calculate • Tab: Next field • Enter: Save • Esc: Cancel")
 
 	return BoxStyle.Render(title + "\n" + content + help)
 }
@@ -1837,6 +1883,11 @@ func (m *Model) updateAddSavingsTargetView(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 	if len(m.inputs) > 0 && m.focusIndex < len(m.inputs) {
 		var cmd tea.Cmd
 		m.inputs[m.focusIndex], cmd = m.inputs[m.focusIndex].Update(msg)
+
+		// Auto-calculate in amount field (index 1: Target Amount)
+		if m.focusIndex == 1 {
+			m.autoCalculateIfNeeded(1)
+		}
 		return m, cmd
 	}
 	return m, nil
@@ -1872,7 +1923,7 @@ func (m Model) viewAddContribution() string {
 		}
 	}
 
-	help := HelpStyle.Render("Tab: Next field • Enter: Save • Esc: Cancel")
+	help := HelpStyle.Render("+: Calculate • Tab: Next field • Enter: Save • Esc: Cancel")
 
 	return BoxStyle.Render(title + "\n" + content + help)
 }
@@ -1929,6 +1980,11 @@ func (m *Model) updateAddContributionView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if len(m.inputs) > 0 && m.focusIndex < len(m.inputs) {
 		var cmd tea.Cmd
 		m.inputs[m.focusIndex], cmd = m.inputs[m.focusIndex].Update(msg)
+
+		// Auto-calculate in amount field (index 0)
+		if m.focusIndex == 0 {
+			m.autoCalculateIfNeeded(0)
+		}
 		return m, cmd
 	}
 	return m, nil
@@ -2122,19 +2178,72 @@ func evaluateMathExpression(expr string) (float64, error) {
 
 func tryCalculateAmount(value string) (string, bool) {
 	cleanValue := strings.TrimSpace(value)
+	cleanValue = strings.TrimRight(cleanValue, "=")
 
-	if strings.ContainsAny(cleanValue, "+-*/") {
-		for _, char := range cleanValue {
-			if !unicode.IsDigit(char) && char != '.' && char != ' ' && char != '+' && char != '-' && char != '*' && char != '/' {
-				return value, false
-			}
+	// Check if the expression ends with an operator
+	hasTrailingOp := strings.HasSuffix(cleanValue, "+") || strings.HasSuffix(cleanValue, "-") ||
+		strings.HasSuffix(cleanValue, "*") || strings.HasSuffix(cleanValue, "/")
+
+	if hasTrailingOp {
+		// Get the trailing operator
+		trailingOp := cleanValue[len(cleanValue)-1]
+
+		// Remove ONLY the trailing operator (not all operators at the end)
+		testValue := cleanValue[:len(cleanValue)-1]
+		testValue = strings.TrimSpace(testValue)
+
+		if testValue == "" {
+			return value, false
 		}
 
-		result, err := evaluateMathExpression(cleanValue)
-		if err == nil {
-			return strconv.FormatFloat(result, 'f', -1, 64), true
+		// Check if the remaining expression has operators to evaluate
+		if strings.ContainsAny(testValue, "+-*/") {
+			// Evaluate what comes before the trailing operator
+			result, err := evaluateMathExpression(testValue)
+			if err == nil {
+				// Add the trailing operator back
+				return strconv.FormatFloat(result, 'f', -1, 64) + string(trailingOp), true
+			}
+		}
+		return value, false
+	}
+
+	// No trailing operator - evaluate directly
+	if !strings.ContainsAny(cleanValue, "+-*/") {
+		return value, false
+	}
+
+	for _, char := range cleanValue {
+		if !unicode.IsDigit(char) && char != '.' && char != ' ' && char != '+' && char != '-' && char != '*' && char != '/' {
+			return value, false
 		}
 	}
 
+	result, err := evaluateMathExpression(cleanValue)
+	if err == nil {
+		return strconv.FormatFloat(result, 'f', -1, 64), true
+	}
+
 	return value, false
+}
+
+func (m *Model) autoCalculateIfNeeded(inputIndex int) bool {
+	if len(m.inputs) == 0 || inputIndex >= len(m.inputs) {
+		return false
+	}
+
+	val := m.inputs[inputIndex].Value()
+	if val == "" {
+		return false
+	}
+
+	result, ok := tryCalculateAmount(val)
+	if ok {
+		m.inputs[inputIndex].SetValue(result)
+		m.message = "Calculated: " + result
+		m.messageType = "calc"
+		return true
+	}
+
+	return false
 }
