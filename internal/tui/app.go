@@ -541,10 +541,10 @@ func (m Model) viewDebts() string {
 		var groupOrder []string
 
 		for _, debt := range debts {
-			key := debt.PersonName
+			key := storage.NormalizeName(debt.PersonName)
 			if _, exists := groupMap[key]; !exists {
 				groupMap[key] = &personGroup{
-					name:          debt.PersonName,
+					name:          key,
 					totalLent:     0,
 					totalBorrowed: 0,
 					lentDebts:     []models.DebtTransaction{},
@@ -658,10 +658,10 @@ func (m *Model) updateDebtsView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var groupOrder []string
 
 	for _, debt := range debts {
-		key := debt.PersonName
+		key := storage.NormalizeName(debt.PersonName)
 		if _, exists := groupMap[key]; !exists {
 			groupMap[key] = &personGroup{
-				name:          debt.PersonName,
+				name:          key,
 				totalLent:     0,
 				totalBorrowed: 0,
 				debts:         []models.DebtTransaction{},

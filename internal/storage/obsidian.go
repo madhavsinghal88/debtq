@@ -300,22 +300,23 @@ func (o *ObsidianWriter) writeDebtsSummary(data *models.Data) error {
 		if tx.IsSettled {
 			continue
 		}
-		if _, exists := personMap[tx.PersonName]; !exists {
-			personMap[tx.PersonName] = &PersonDebt{
-				Name:          tx.PersonName,
+		key := NormalizeName(tx.PersonName)
+		if _, exists := personMap[key]; !exists {
+			personMap[key] = &PersonDebt{
+				Name:          key,
 				TotalLent:     0,
 				TotalBorrowed: 0,
 				LentTxns:      []models.DebtTransaction{},
 				BorrowedTxns:  []models.DebtTransaction{},
 			}
-			personOrder = append(personOrder, tx.PersonName)
+			personOrder = append(personOrder, key)
 		}
 		if tx.Type == models.Lent {
-			personMap[tx.PersonName].TotalLent += tx.Amount
-			personMap[tx.PersonName].LentTxns = append(personMap[tx.PersonName].LentTxns, tx)
+			personMap[key].TotalLent += tx.Amount
+			personMap[key].LentTxns = append(personMap[key].LentTxns, tx)
 		} else {
-			personMap[tx.PersonName].TotalBorrowed += tx.Amount
-			personMap[tx.PersonName].BorrowedTxns = append(personMap[tx.PersonName].BorrowedTxns, tx)
+			personMap[key].TotalBorrowed += tx.Amount
+			personMap[key].BorrowedTxns = append(personMap[key].BorrowedTxns, tx)
 		}
 	}
 

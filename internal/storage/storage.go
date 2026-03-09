@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/debtq/debtq/internal/config"
@@ -41,6 +42,11 @@ func New(cfg *config.Config) (*Storage, error) {
 	}
 
 	return s, nil
+}
+
+// NormalizeName normalizes a person name for consistent comparison (trims whitespace and converts to uppercase)
+func NormalizeName(name string) string {
+	return strings.TrimSpace(strings.ToUpper(name))
 }
 
 // Load loads data from file
@@ -128,7 +134,7 @@ func (s *Storage) AddDebtTransaction(txType models.TransactionType, personName s
 	tx := models.DebtTransaction{
 		ID:             GenerateID(),
 		Type:           txType,
-		PersonName:     personName,
+		PersonName:     NormalizeName(personName),
 		Amount:         amount,
 		OriginalAmount: amount,
 		Description:    description,
@@ -160,9 +166,10 @@ func (s *Storage) SettleDebtTransaction(id string) error {
 func (s *Storage) PartialSettleDebt(personName string, amount float64, settleType models.TransactionType) (float64, error) {
 	var settled float64
 	now := time.Now()
+	normalizedName := NormalizeName(personName)
 
 	for i, tx := range s.data.DebtTransactions {
-		if tx.PersonName == personName && tx.Type == settleType && !tx.IsSettled {
+		if tx.PersonName == normalizedName && tx.Type == settleType && !tx.IsSettled {
 			if settled >= amount {
 				break
 			}
@@ -190,10 +197,11 @@ func (s *Storage) PartialSettleDebt(personName string, amount float64, settleTyp
 // SettleAmountForPerson settles a specific amount for a person (handles both lent and borrowed)
 // It calculates net balance and settles appropriately
 func (s *Storage) SettleAmountForPerson(personName string, amount float64) (float64, error) {
+	normalizedName := NormalizeName(personName)
 	// Calculate current balances
 	var totalLent, totalBorrowed float64
 	for _, tx := range s.data.DebtTransactions {
-		if tx.PersonName == personName && !tx.IsSettled {
+		if tx.PersonName == normalizedName && !tx.IsSettled {
 			if tx.Type == models.Lent {
 				totalLent += tx.Amount
 			} else {
@@ -213,7 +221,7 @@ func (s *Storage) SettleAmountForPerson(personName string, amount float64) (floa
 			remainingToSettle = netBalance
 		}
 		for i, tx := range s.data.DebtTransactions {
-			if tx.PersonName == personName && tx.Type == models.Lent && !tx.IsSettled && remainingToSettle > 0 {
+			if tx.PersonName == normalizedName && tx.Type == models.Lent && !tx.IsSettled && remainingToSettle > 0 {
 				if tx.Amount <= remainingToSettle {
 					s.data.DebtTransactions[i].IsSettled = true
 					s.data.DebtTransactions[i].SettledDate = &now
@@ -232,7 +240,7 @@ func (s *Storage) SettleAmountForPerson(personName string, amount float64) (floa
 			offsetSettle = netBalance
 		}
 		for i, tx := range s.data.DebtTransactions {
-			if tx.PersonName == personName && tx.Type == models.Borrowed && !tx.IsSettled && offsetSettle > 0 {
+			if tx.PersonName == normalizedName && tx.Type == models.Borrowed && !tx.IsSettled && offsetSettle > 0 {
 				if tx.Amount <= offsetSettle {
 					s.data.DebtTransactions[i].IsSettled = true
 					s.data.DebtTransactions[i].SettledDate = &now
@@ -250,7 +258,7 @@ func (s *Storage) SettleAmountForPerson(personName string, amount float64) (floa
 			remainingToSettle = -netBalance
 		}
 		for i, tx := range s.data.DebtTransactions {
-			if tx.PersonName == personName && tx.Type == models.Borrowed && !tx.IsSettled && remainingToSettle > 0 {
+			if tx.PersonName == normalizedName && tx.Type == models.Borrowed && !tx.IsSettled && remainingToSettle > 0 {
 				if tx.Amount <= remainingToSettle {
 					s.data.DebtTransactions[i].IsSettled = true
 					s.data.DebtTransactions[i].SettledDate = &now
@@ -269,7 +277,7 @@ func (s *Storage) SettleAmountForPerson(personName string, amount float64) (floa
 			offsetSettle = -netBalance
 		}
 		for i, tx := range s.data.DebtTransactions {
-			if tx.PersonName == personName && tx.Type == models.Lent && !tx.IsSettled && offsetSettle > 0 {
+			if tx.PersonName == normalizedName && tx.Type == models.Lent && !tx.IsSettled && offsetSettle > 0 {
 				if tx.Amount <= offsetSettle {
 					s.data.DebtTransactions[i].IsSettled = true
 					s.data.DebtTransactions[i].SettledDate = &now
@@ -284,7 +292,7 @@ func (s *Storage) SettleAmountForPerson(personName string, amount float64) (floa
 		// Net is 0 but there might be unsettled transactions - settle all
 		var hasUnsettled bool
 		for i, tx := range s.data.DebtTransactions {
-			if tx.PersonName == personName && !tx.IsSettled {
+			if tx.PersonName == normalizedName && !tx.IsSettled {
 				s.data.DebtTransactions[i].IsSettled = true
 				s.data.DebtTransactions[i].SettledDate = &now
 				settled += tx.Amount
@@ -304,9 +312,10 @@ func (s *Storage) SettleAmountForPerson(personName string, amount float64) (floa
 
 // GetPersonNetBalance returns the net balance for a person
 func (s *Storage) GetPersonNetBalance(personName string) float64 {
+	normalizedName := NormalizeName(personName)
 	var totalLent, totalBorrowed float64
 	for _, tx := range s.data.DebtTransactions {
-		if tx.PersonName == personName && !tx.IsSettled {
+		if tx.PersonName == normalizedName && !tx.IsSettled {
 			if tx.Type == models.Lent {
 				totalLent += tx.Amount
 			} else {
@@ -346,9 +355,10 @@ func (s *Storage) GetSettledDebts() []models.DebtTransaction {
 
 // GetUnsettledDebtsForPerson returns unsettled debts for a specific person
 func (s *Storage) GetUnsettledDebtsForPerson(personName string) []models.DebtTransaction {
+	normalizedName := NormalizeName(personName)
 	var unsettled []models.DebtTransaction
 	for _, tx := range s.data.DebtTransactions {
-		if tx.PersonName == personName && !tx.IsSettled {
+		if tx.PersonName == normalizedName && !tx.IsSettled {
 			unsettled = append(unsettled, tx)
 		}
 	}
@@ -397,9 +407,10 @@ func (s *Storage) SettleTransactionWithNote(id string, amount float64, note stri
 
 // GetSettlementsForPerson returns all settlements for a specific person
 func (s *Storage) GetSettlementsForPerson(personName string) []models.Settlement {
+	normalizedName := NormalizeName(personName)
 	var settlements []models.Settlement
 	for _, st := range s.data.Settlements {
-		if st.PersonName == personName {
+		if st.PersonName == normalizedName {
 			settlements = append(settlements, st)
 		}
 	}
@@ -413,9 +424,10 @@ func (s *Storage) GetAllSettlements() []models.Settlement {
 
 // GetSettledDebtsForPerson returns settled debts for a specific person
 func (s *Storage) GetSettledDebtsForPerson(personName string) []models.DebtTransaction {
+	normalizedName := NormalizeName(personName)
 	var settled []models.DebtTransaction
 	for _, tx := range s.data.DebtTransactions {
-		if tx.PersonName == personName && tx.IsSettled {
+		if tx.PersonName == normalizedName && tx.IsSettled {
 			settled = append(settled, tx)
 		}
 	}
